@@ -17,7 +17,7 @@ void project_points(const cv::Mat& world_points, const cv::Mat& rvec, const cv::
     k4 = dist_coeffs.at<double>(0, 3);
   }
 
-  if (dist_coeffs.cols >= 6)  // plumb bob model
+  if (dist_coeffs.cols >= 5)  // plumb bob model
   {
     p1 = dist_coeffs.at<double>(0, 2);
     p2 = dist_coeffs.at<double>(0, 3);
@@ -47,6 +47,7 @@ void project_points(const cv::Mat& world_points, const cv::Mat& rvec, const cv::
 
     double r = sqrt(xp * xp + yp * yp);
     double theta;
+    double dx1 = 0, dx2 = 0;
 
     if (dist_coeffs.cols == 4)
     {
@@ -57,11 +58,12 @@ void project_points(const cv::Mat& world_points, const cv::Mat& rvec, const cv::
     }
     else
     {
+
       theta = (1. + k1 * r * r + k2 * pow(r, 4) + k3 * pow(r, 6)) /
               (1. + k4 * r * r + k5 * pow(r, 4) + k6 * pow(r, 6));
+      dx1 = 2. * p1 * xp * yp + p2 * (r * r + 2. * xp * xp);  // zero for fisheye
+      dx2 = p1 * (r * r + 2. * yp * yp) + 2. * p2 * xp * yp;  // zero for fisheye
     }
-    double dx1 = 2. * p1 * xp * yp + p2 * (r * r + 2. * x * x);  // zero for fisheye
-    double dx2 = p1 * (r * r + 2. * y * y) + 2. * p2 * xp * yp;  // zero for fisheye
 
 
     double xpp = theta * xp + dx1;

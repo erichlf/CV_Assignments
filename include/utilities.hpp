@@ -189,4 +189,32 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
   }
 }
 
+/*
+ * \brief determines the error between the given image points and the projection of the 3D object points
+ * \param object_points 3D world points to project and compare
+ * \param image_points  2D image points to compare to the projected world points
+ * \param rvec  rotation vector
+ * \param tvec  translation vector
+ * \param camera_matrix camera matrix
+ * \param dist_coeffs fisheye distortion coefficients
+ */
+double reprojection_error(cv::InputArray& object_points_, const std::vector<cv::Point2d>& image_points,
+                          const cv::Vec3d& rvec, const cv::Vec3d& tvec,
+                          const cv::Matx33d& camera_matrix,
+                          const cv::Matx<double, 1, 4>& dist_coeffs)
+{
+  std::vector<cv::Point2d> projected_image_points;
+  // cv::projectPoints(object_points_.getMat(), rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
+  project_points(object_points_.getMat(), rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
+  std::cout << projected_image_points << std::endl;
+
+  double error = 0;
+  for (int i = 0; i < image_points.size(); ++i)
+    error += cv::norm(cv::Mat(image_points[i]), cv::Mat(projected_image_points[i]), CV_L2);
+
+  error /= image_points.size();
+
+  return error;
+}
+
 };  // namespace assignements

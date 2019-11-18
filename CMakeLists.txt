@@ -9,15 +9,31 @@ add_executable(distortion
                )
 
 set_target_properties(distortion
-                      PROPERTIES CXX_STANDARD 14)
+                      PROPERTIES CXX_STANDARD 17)
 
 target_include_directories(distortion
                            PUBLIC
-                           ${CMAKE_CURRENT_SOURCE_DIR}/include
+                               ${CMAKE_CURRENT_SOURCE_DIR}/include
                            )
 
 target_link_libraries(distortion
                       PRIVATE
-                      ${OpenCV_LIBRARIES}
+                          ${OpenCV_LIBRARIES}
                       )
 
+add_executable(pose
+               pose.cpp
+               )
+
+set_target_properties(pose
+                      PROPERTIES CXX_STANDARD 17)
+
+target_include_directories(pose
+                           PUBLIC
+                               ${CMAKE_CURRENT_SOURCE_DIR}/include
+                           )
+
+target_link_libraries(pose
+                      PRIVATE
+                          ${OpenCV_LIBRARIES}
+                      )

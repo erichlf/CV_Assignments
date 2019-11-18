@@ -6,6 +6,32 @@ namespace assignments
 {
 
 /*
+ * \brief convert a rotation vector and translation vector to a transformation matrix
+ */
+cv::Matx<double, 3, 4> get_transform_(cv::Vec3d rvec, cv::Vec3d tvec)
+{
+  const cv::Matx<double, 3, 3> rotation;
+  cv::Rodrigues(rvec, rotation);
+  cv::Matx<double , 3, 4> translation(1, 0, 0, tvec(0),
+                                      0, 1, 0, tvec(1),
+                                      0, 0, 1, tvec(2));
+
+  return rotation * translation;
+}
+
+/*
+ * \brief transform a homogeneous point
+ * \param transform transformation
+ * \param point point to be transformed
+ */
+std::tuple<double, double, double> transform_point(cv::Matx<double, 3, 4> transform, cv::Vec4d point)
+{
+  const cv::Vec3d transformed_point = transform * point;
+
+  return {transformed_point(0), transformed_point(1), transformed_point(2)};
+}
+
+/*
  * \brief projects the distorted and z-normalized world point into image points
  * \param distorted_point distorted and z-normalized world point
  * \param K camera matrix
@@ -36,6 +62,7 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
                     const cv::Matx<double, 3, 3>& K, const cv::Matx<double, 1, 4>& dist_coeffs,
                     std::vector<cv::Point2d>& image_points)
 {
+  const auto transform = get_transform_(rvec, tvec);
   const auto world_points = world_points_.getMat();
 
   const auto k1 = dist_coeffs(0, 0);
@@ -45,10 +72,11 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
 
   for (int i = 0; i < world_points.rows; ++i)
   {
-    const auto x = world_points.at<double>(i, 0);
-    const auto y = world_points.at<double>(i, 1);
-    const auto z = world_points.at<double>(i, 2);
-
+    const auto& [x, y, z] = transform_point(transform,
+                                      {world_points.at<double>(i, 0),
+                                             world_points.at<double>(i, 1),
+                                             world_points.at<double>(i, 2),
+                                             1});
     const auto xp = x / z;
     const auto yp = y / z;
 
@@ -80,6 +108,9 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
                     const cv::Matx<double, 3, 3>& K, const cv::Matx<double , 1, 5>& dist_coeffs,
                     std::vector<cv::Point2d>& image_points)
 {
+
+  const auto transform = get_transform_(rvec, tvec);
+
   const auto world_points = world_points_.getMat();
   const auto k1 = dist_coeffs(0, 0);
   const auto k2 = dist_coeffs(0, 1);
@@ -89,9 +120,11 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
 
   for (int i = 0; i < world_points.rows; ++i)
   {
-    const auto x = world_points.at<double>(i, 0);
-    const auto y = world_points.at<double>(i, 1);
-    const auto z = world_points.at<double>(i, 2);
+    const auto& [x, y, z] = transform_point(transform,
+                                            {world_points.at<double>(i, 0),
+                                             world_points.at<double>(i, 1),
+                                             world_points.at<double>(i, 2),
+                                             1});
 
     const double xp = x / z;
     const double yp = y / z;
@@ -125,6 +158,7 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
                     const cv::Matx<double, 3, 3>& K, const cv::Matx<double , 1, 8>& dist_coeffs,
                     std::vector<cv::Point2d>& image_points)
 {
+  const auto transform = get_transform_(rvec, tvec);
   const auto world_points = world_points_.getMat();
 
   const auto k1 = dist_coeffs(0, 0);
@@ -138,9 +172,11 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
 
   for (int i = 0; i < world_points.rows; ++i)
   {
-    const auto x = world_points.at<double>(i, 0);
-    const auto y = world_points.at<double>(i, 1);
-    const auto z = world_points.at<double>(i, 2);
+    const auto& [x, y, z] = transform_point(transform,
+                                            {world_points.at<double>(i, 0),
+                                             world_points.at<double>(i, 1),
+                                             world_points.at<double>(i, 2),
+                                             1});
 
     const double xp = x / z;
     const double yp = y / z;

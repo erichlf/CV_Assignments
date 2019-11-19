@@ -8,6 +8,7 @@ namespace assignments
 /*
  * \brief convert a rotation vector and translation vector to a transformation matrix
  */
+inline
 cv::Affine3d get_transform_(cv::Vec3d rvec, cv::Vec3d tvec)
 {
   return cv::Affine3d(rvec, tvec);
@@ -18,6 +19,7 @@ cv::Affine3d get_transform_(cv::Vec3d rvec, cv::Vec3d tvec)
  * \param transform transformation
  * \param point point to be transformed
  */
+inline
 std::tuple<double, double, double> transform_point(const cv::Affine3d& transform, cv::Vec3d point)
 {
   const cv::Vec3d transformed_point = transform * point;
@@ -30,6 +32,7 @@ std::tuple<double, double, double> transform_point(const cv::Affine3d& transform
  * \param distorted_point distorted and z-normalized world point
  * \param K camera matrix
  */
+inline
 cv::Point2d get_image_point_(cv::Point2d distorted_point, const cv::Matx33d K)
 {
   const auto fx = K(0, 0);
@@ -204,7 +207,7 @@ double reprojection_error(cv::InputArray& object_points_, const std::vector<cv::
                           const cv::Matx<double, 1, 4>& dist_coeffs)
 {
   std::vector<cv::Point2d> projected_image_points;
-  // cv::projectPoints(object_points_.getMat(), rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
+  // cv::fisheye::projectPoints(object_points_.getMat(), rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
   project_points(object_points_.getMat(), rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
   std::cout << projected_image_points << std::endl;
 

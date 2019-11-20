@@ -23,8 +23,9 @@ int main()
   cv::Vec3d rvec;
   cv::Vec3d tvec;
 
-  cv::fisheye::undistortPoints(distorted_image_points, undistorted_image_points, camera_matrix, fisheye_model);
-  std::cout << undistorted_image_points << std::endl;
+  cv::fisheye::undistortPoints(distorted_image_points, undistorted_image_points, camera_matrix, fisheye_model,
+                               cv::noArray(), camera_matrix);
+
   cv::solvePnPRansac(object_points, undistorted_image_points, camera_matrix, no_distortion_model, rvec, tvec);
 
   const auto reprojection_error = assignments::reprojection_error(object_points, distorted_image_points, rvec, tvec,

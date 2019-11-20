@@ -55,24 +55,24 @@ cv::Point2d get_image_point_(cv::Point2d distorted_point, const cv::Matx33d K)
  * \param dist_coefficients distortion coefficients k1, k2, k3, k4
  * \param image_points  points in image after distortion
  */
-void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
+template <int N>
+void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
                     const cv::Matx33d& K, const cv::Matx<double, 1, 4>& dist_coeffs,
                     std::vector<cv::Point2d>& image_points)
 {
   const auto transform = get_transform_(rvec, tvec);
-  const auto world_points = world_points_.getMat();
 
   const auto k1 = dist_coeffs(0, 0);
   const auto k2 = dist_coeffs(0, 1);
   const auto k3 = dist_coeffs(0, 2);
   const auto k4 = dist_coeffs(0, 3);
 
-  for (int i = 0; i < world_points.rows; ++i)
+  for (int i = 0; i < N; ++i)
   {
     const auto& [x, y, z] = transform_point(transform,
-                                            {world_points.at<double>(i, 0),
-                                             world_points.at<double>(i, 1),
-                                             world_points.at<double>(i, 2)});
+                                            {world_points(i, 0),
+                                             world_points(i, 1),
+                                             world_points(i, 2)});
     const auto xp = x / z;
     const auto yp = y / z;
 
@@ -100,13 +100,13 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
  * \param dist_coefficients distortion coefficients k1, k2, p1, p2, k3, k4
  * \param image_points  points in image after distortion
  */
-void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
+template <int N>
+void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
                     const cv::Matx33d& K, const cv::Matx<double , 1, 5>& dist_coeffs,
                     std::vector<cv::Point2d>& image_points)
 {
 
   const auto transform = get_transform_(rvec, tvec);
-  const auto world_points = world_points_.getMat();
 
   const auto k1 = dist_coeffs(0, 0);
   const auto k2 = dist_coeffs(0, 1);
@@ -114,12 +114,12 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
   const auto p2 = dist_coeffs(0, 3);
   const auto k3 = dist_coeffs(0, 4);
 
-  for (int i = 0; i < world_points.rows; ++i)
+  for (int i = 0; i < N; ++i)
   {
     const auto& [x, y, z] = transform_point(transform,
-                                           {world_points.at<double>(i, 0),
-                                            world_points.at<double>(i, 1),
-                                            world_points.at<double>(i, 2)});
+                                           {world_points(i, 0),
+                                            world_points(i, 1),
+                                            world_points(i, 2)});
 
     const double xp = x / z;
     const double yp = y / z;
@@ -149,12 +149,12 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
  * \param dist_coefficients distortion coefficients k1, k2, p1, p2, k3, k4, k5, k6
  * \param image_points  points in image after distortion
  */
-void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
+template <int N>
+void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
                     const cv::Matx33d& K, const cv::Matx<double , 1, 8>& dist_coeffs,
                     std::vector<cv::Point2d>& image_points)
 {
   const auto transform = get_transform_(rvec, tvec);
-  const auto world_points = world_points_.getMat();
 
   const auto k1 = dist_coeffs(0, 0);
   const auto k2 = dist_coeffs(0, 1);
@@ -165,12 +165,12 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
   const auto k5 = dist_coeffs(0, 6);
   const auto k6 = dist_coeffs(0, 7);
 
-  for (int i = 0; i < world_points.rows; ++i)
+  for (int i = 0; i < N; ++i)
   {
     const auto& [x, y, z] = transform_point(transform,
-                                            {world_points.at<double>(i, 0),
-                                             world_points.at<double>(i, 1),
-                                             world_points.at<double>(i, 2)});
+                                            {world_points(i, 0),
+                                             world_points(i, 1),
+                                             world_points(i, 2)});
 
     const double xp = x / z;
     const double yp = y / z;
@@ -201,18 +201,20 @@ void project_points(const cv::InputArray& world_points_, const cv::Vec3d& rvec, 
  * \param camera_matrix camera matrix
  * \param dist_coeffs fisheye distortion coefficients
  */
-double reprojection_error(cv::InputArray& object_points_, const std::vector<cv::Point2d>& image_points,
+template <int N>
+double reprojection_error(const cv::Matx<double, N, 3>& object_points, const std::vector<cv::Point2d>& image_points,
                           const cv::Vec3d& rvec, const cv::Vec3d& tvec,
                           const cv::Matx33d& camera_matrix,
                           const cv::Matx<double, 1, 4>& dist_coeffs)
 {
   std::vector<cv::Point2d> projected_image_points;
-  // cv::fisheye::projectPoints(object_points_.getMat(), rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
-  project_points(object_points_.getMat(), rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
+
+  // cv::fisheye::projectPoints(object_points, rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
+  project_points(object_points, rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
   std::cout << projected_image_points << std::endl;
 
   double error = 0;
-  for (int i = 0; i < image_points.size(); ++i)
+  for (int i = 0; i < N; ++i)
     error += cv::norm(cv::Mat(image_points[i]), cv::Mat(projected_image_points[i]), CV_L2);
 
   error /= image_points.size();

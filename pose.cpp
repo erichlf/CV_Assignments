@@ -39,4 +39,21 @@ int main()
   std::cout << objects_from_camera.translation() << std::endl;
   std::cout << "Reprojection Error:" << std::endl;
   std::cout << reprojection_error << std::endl;
+
+
+  cv::Mat object_points_C3(object_points.rows, 1, CV_64FC3);
+  for (int i = 0; i < object_points.rows; ++i)
+    object_points_C3.at<cv::Vec3d>(i) = cv::Point3d{object_points(i, 0), object_points(i, 1), object_points(i, 2)};
+
+  cv::viz::Viz3d window = cv::viz::Viz3d("Camera Pose");
+  // window.showWidget("Axis", cv::viz::WCoordinateSystem());
+  window.showWidget("Camera", cv::viz::WCameraPosition(camera_matrix));
+  window.showWidget("Points", cv::viz::WCloud(object_points_C3, cv::viz::Color::green()));
+
+  window.setWidgetPose("Camera", objects_from_camera);
+
+  while (!window.wasStopped())
+    window.spinOnce(1, true);
+
+  return EXIT_SUCCESS;
 }

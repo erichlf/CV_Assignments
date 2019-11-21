@@ -222,4 +222,4 @@ double reprojection_error(const cv::Matx<double, N, 3>& object_points, const std
   return error;
 }
 
-};  // namespace assignements
+};  // namespace assignments

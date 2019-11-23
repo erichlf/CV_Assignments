@@ -211,7 +211,6 @@ double reprojection_error(const cv::Matx<double, N, 3>& object_points, const std
 
   // cv::fisheye::projectPoints(object_points, rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
   project_points(object_points, rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
-  std::cout << projected_image_points << std::endl;
 
   double error = 0;
   for (int i = 0; i < N; ++i)

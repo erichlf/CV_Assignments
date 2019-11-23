@@ -28,12 +28,29 @@ add_executable(camera_pose
 set_target_properties(camera_pose
                       PROPERTIES CXX_STANDARD 17)
 
-target_include_directories(pose
+target_include_directories(camera_pose
+                           PUBLIC
+                           ${CMAKE_CURRENT_SOURCE_DIR}/include
+                           )
+
+target_link_libraries(camera_pose
+                      PRIVATE
+                      ${OpenCV_LIBRARIES}
+                      )
+
+add_executable(camera_to_camera
+               camera_to_camera.cpp
+               )
+
+set_target_properties(camera_to_camera
+                      PROPERTIES CXX_STANDARD 17)
+
+target_include_directories(camera_to_camera
                            PUBLIC
                                ${CMAKE_CURRENT_SOURCE_DIR}/include
                            )
 
-target_link_libraries(pose
+target_link_libraries(camera_to_camera
                       PRIVATE
                           ${OpenCV_LIBRARIES}
                       )

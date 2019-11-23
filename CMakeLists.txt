@@ -21,11 +21,11 @@ target_link_libraries(distortion
                           ${OpenCV_LIBRARIES}
                       )
 
-add_executable(pose
-               pose.cpp
+add_executable(camera_pose
+               camera_pose.cpp
                )
 
-set_target_properties(pose
+set_target_properties(camera_pose
                       PROPERTIES CXX_STANDARD 17)
 
 target_include_directories(pose

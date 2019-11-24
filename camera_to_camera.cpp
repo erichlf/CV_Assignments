@@ -51,17 +51,19 @@ int main()
 
   const auto camera0_from_objects = cv::Affine3f(rvec0, tvec0);
   const auto objects_from_camera0 = camera0_from_objects.inv();
-  const auto objects_from_camera1 = cv::Affine3f(rvec1, tvec1).inv();
+  const auto camera1_from_objects = cv::Affine3f(rvec1, tvec1);
+  const auto objects_from_camera1 = camera1_from_objects.inv();
 
-  const auto camera0_from_camera1 = camera0_from_objects * objects_from_camera1;
+  const auto camera1_from_camera0 = camera1_from_objects * objects_from_camera0;
 
+  std::cout << "camera1_from_camera0" << std::endl;
   std::cout << "Rotation:" << std::endl;
-  std::cout << camera0_from_camera1.rvec() << std::endl;
+  std::cout << camera1_from_camera0.rvec() << std::endl;
   std::cout << "Translation:" << std::endl;
-  std::cout << camera0_from_camera1.translation() << std::endl;
+  std::cout << camera1_from_camera0.translation() << std::endl;
   std::cout << "Reprojection Errors:" << std::endl;
-  std::cout << reprojection_error0 << std::endl;
-  std::cout << reprojection_error1 << std::endl;
+  std::cout << "camera0: " << reprojection_error0 << std::endl;
+  std::cout << "camera1: " << reprojection_error1 << std::endl;
 
 
   cv::viz::Viz3d window = cv::viz::Viz3d("Camera Poses");

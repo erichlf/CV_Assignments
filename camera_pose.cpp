@@ -3,13 +3,13 @@
 int main()
 {
   cv::Matx<double, 1, 4> fisheye_model(0.1, -0.2, 0.03, 0.001);
-  cv::Matx<double, 1, 4> no_distortion_model(0, 0, 0, 0);
 
   cv::Matx33d camera_matrix(584.4, 0, 622.8,
                             0, 584.4, 538.3,
                             0, 0, 1);
 
-  cv::Matx<double, 4, 3> object_points(0., 0., 0.,
+  const int num_points = 4;
+  cv::Matx<double, num_points, 3> object_points(0., 0., 0.,
                                        2., 0., 0.,
                                        2., 2., 0.,
                                        0., 2., 0.);
@@ -18,15 +18,10 @@ int main()
                                                   {933.85321358, 793.21655267},
                                                   {871.88605416, 895.78261428},
                                                   {720.14648139, 886.22059601}};
-  std::vector<cv::Point2d> undistorted_image_points;
 
-  cv::Vec3d rvec;
-  cv::Vec3d tvec;
+  assignments::Correspondences<num_points> correspondences(object_points, distorted_image_points);
 
-  cv::fisheye::undistortPoints(distorted_image_points, undistorted_image_points, camera_matrix, fisheye_model,
-                               cv::noArray(), camera_matrix);
-
-  cv::solvePnPRansac(object_points, undistorted_image_points, camera_matrix, no_distortion_model, rvec, tvec);
+  const auto& [rvec, tvec] = assignments::fisheye_solvePnP(correspondences, camera_matrix, fisheye_model);
 
   const auto reprojection_error = assignments::reprojection_error(object_points, distorted_image_points, rvec, tvec,
                                                                   camera_matrix, fisheye_model);

@@ -1,9 +1,41 @@
 #include <opencv2/opencv.hpp>
 
 #include <vector>
+#include <tuple>
 
 namespace assignments
 {
+
+/*
+ * \brief object containing correspondence between object_points (3D) and image_points (2D)
+ */
+template <int N>
+class Correspondences
+{
+ private:
+  cv::Matx<double, N, 3> object_points_;
+  std::vector<cv::Point2d> image_points_;
+
+ public:
+  /*
+   * \brief constructor for Correspondences
+   * \param object_points   3D points
+   * \param image_points    2D points
+   */
+  Correspondences(cv::Matx<double, N, 3> object_points, std::vector<cv::Point2d> image_points) :
+    object_points_(object_points),
+    image_points_(image_points) {};
+
+  /*
+   * \brief getter for image_points
+   */
+  std::vector<cv::Point2d> get_image_points() { return image_points_; };
+
+  /*
+   * \brief getter for object_points
+   */
+  cv::Matx<double, N, 3> get_object_points() { return object_points_; };
+};
 
 /*
  * \brief convert a rotation vector and translation vector to a transformation matrix
@@ -219,6 +251,33 @@ double reprojection_error(const cv::Matx<double, N, 3>& object_points, const std
   error /= image_points.size();
 
   return error;
+}
+
+/*
+ * \brief solvePnP for a fisheye model
+ * \param correspondences   the 3D to 2D correspondences
+ * \param camera_matrix   matrix containing camera intrinsics
+ * \param fisheye_model   fisheye model to use in deprojection
+ */
+template <int N>
+std::tuple<cv::Vec3d, cv::Vec3d> fisheye_solvePnP(Correspondences<N> correspondences, cv::Matx33d camera_matrix,
+                                                  cv::Matx<double, 1, 4> fisheye_model)
+{
+  cv::Matx<double, 1, 4> no_distortion_model(0, 0, 0, 0);
+
+  const auto object_points = correspondences.get_object_points();
+  const auto image_points = correspondences.get_image_points();
+
+  // undistort points so that we can use cv::solvePnP
+  std::vector<cv::Point2d> camera_undistorted_image_points;
+  cv::fisheye::undistortPoints(image_points, camera_undistorted_image_points, camera_matrix, fisheye_model,
+                               cv::noArray(), camera_matrix);
+
+  cv::Vec3d rvec;
+  cv::Vec3d tvec;
+  cv::solvePnP(object_points, camera_undistorted_image_points, camera_matrix, no_distortion_model, rvec, tvec);
+
+  return {rvec, tvec};
 }
 
 };  // namespace assignments

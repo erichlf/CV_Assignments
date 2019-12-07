@@ -4,7 +4,6 @@ int main()
 {
   cv::Matx<double, 1, 4> camera0_fisheye_model(0.1, -0.2, 0.03, 0.001);
   cv::Matx<double, 1, 4> camera1_fisheye_model(0.1, -0.2, 0.04, 0.002);
-  cv::Matx<double, 1, 4> no_distortion_model(0, 0, 0, 0);
 
   cv::Matx33d camera0_matrix(584.4, 0, 622.8,
                              0, 584.4, 538.3,
@@ -13,7 +12,8 @@ int main()
                              0, 600.4, 540.3,
                              0, 0, 1);
 
-  cv::Matx<double, 4, 3> object_points(0., 0., 0.,
+  const int num_points = 4;
+  cv::Matx<double, num_points, 3> object_points(0., 0., 0.,
                                        2., 0., 0.,
                                        2., 2., 0.,
                                        0., 2., 0.);
@@ -26,23 +26,12 @@ int main()
                                                {1119.53349968, 711.67387679},
                                                {1122.39059137, 838.73588114},
                                                {1041.58631452, 903.12181786}};
-  std::vector<cv::Point2d> camera0_undistorted_image_points;
-  std::vector<cv::Point2d> camera1_undistorted_image_points;
 
-  cv::Vec3d rvec0;
-  cv::Vec3d tvec0;
-  cv::Vec3d rvec1;
-  cv::Vec3d tvec1;
+  assignments::Correspondences<num_points> correspondences0(object_points, camera0_projections);
+  assignments::Correspondences<num_points> correspondences1(object_points, camera1_projections);
 
-  cv::fisheye::undistortPoints(camera0_projections, camera0_undistorted_image_points, camera0_matrix,
-                               camera0_fisheye_model, cv::noArray(), camera0_matrix);
-  cv::fisheye::undistortPoints(camera1_projections, camera1_undistorted_image_points, camera1_matrix,
-                               camera1_fisheye_model, cv::noArray(), camera1_matrix);
-
-  cv::solvePnPRansac(object_points, camera0_undistorted_image_points, camera0_matrix, no_distortion_model, rvec0,
-                     tvec0);
-  cv::solvePnPRansac(object_points, camera1_undistorted_image_points, camera1_matrix, no_distortion_model, rvec1,
-                     tvec1);
+  const auto& [rvec0, tvec0] = assignments::fisheye_solvePnP(correspondences0, camera0_matrix, camera0_fisheye_model);
+  const auto& [rvec1, tvec1] = assignments::fisheye_solvePnP(correspondences1, camera1_matrix, camera1_fisheye_model);
 
   const auto reprojection_error0 = assignments::reprojection_error(object_points, camera0_projections, rvec0, tvec0,
                                                                    camera0_matrix, camera0_fisheye_model);

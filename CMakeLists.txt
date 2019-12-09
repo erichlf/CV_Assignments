@@ -53,5 +53,22 @@ target_include_directories(camera_to_camera
 
 target_link_libraries(camera_to_camera
                       PRIVATE
-                      ${OpenCV_LIBRARIES}
+                          ${OpenCV_LIBRARIES}
+                      )
+
+add_executable(camera_pose_ransac
+               camera_pose_ransac.cpp
+               )
+
+set_target_properties(camera_pose_ransac
+                      PROPERTIES CXX_STANDARD 17)
+
+target_include_directories(camera_pose_ransac
+                           PUBLIC
+                               ${CMAKE_CURRENT_SOURCE_DIR}/include
+                           )
+
+target_link_libraries(camera_pose_ransac
+                      PRIVATE
+                          ${OpenCV_LIBRARIES}
                       )

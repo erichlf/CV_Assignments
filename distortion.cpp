@@ -12,9 +12,9 @@ int main()
                             0, 584.4, 538.3,
                             0, 0, 1);
 
-  cv::Matx33d world_points(5, 10, 15,
-                           0, 0, 10,
-                           1.23, 3.4, 5.67);
+  std::vector<cv::Point3d> world_points{{5, 10, 15},
+                                        {0, 0, 10},
+                                        {1.23, 3.4, 5.67}};
   /*
   std::vector<cv::Point3d> world_points_vector{
     {world_points.at<double>(0, 0), world_points.at<double>(0, 1), world_points.at<double>(0, 2)},

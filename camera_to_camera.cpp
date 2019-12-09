@@ -12,11 +12,10 @@ int main()
                              0, 600.4, 540.3,
                              0, 0, 1);
 
-  const int num_points = 4;
-  cv::Matx<double, num_points, 3> object_points(0., 0., 0.,
-                                       2., 0., 0.,
-                                       2., 2., 0.,
-                                       0., 2., 0.);
+  std::vector<cv::Point3d> object_points{{0., 0., 0.},
+                                         {2., 0., 0.},
+                                         {2., 2., 0.},
+                                         {0., 2., 0.}};
 
   std::vector<cv::Point2d> camera0_projections{{752.62227857, 777.97189891},
                                                {933.85321358, 793.21655267},
@@ -27,11 +26,10 @@ int main()
                                                {1122.39059137, 838.73588114},
                                                {1041.58631452, 903.12181786}};
 
-  assignments::Correspondences<num_points> correspondences0(object_points, camera0_projections);
-  assignments::Correspondences<num_points> correspondences1(object_points, camera1_projections);
-
-  const auto& [rvec0, tvec0] = assignments::fisheye_solvePnP(correspondences0, camera0_matrix, camera0_fisheye_model);
-  const auto& [rvec1, tvec1] = assignments::fisheye_solvePnP(correspondences1, camera1_matrix, camera1_fisheye_model);
+  const auto& [rvec0, tvec0] = assignments::fisheye_solvePnP(object_points, camera0_projections, camera0_matrix,
+                                                             camera0_fisheye_model);
+  const auto& [rvec1, tvec1] = assignments::fisheye_solvePnP(object_points, camera1_projections, camera1_matrix,
+                                                             camera1_fisheye_model);
 
   const auto reprojection_error0 = assignments::reprojection_error(object_points, camera0_projections, rvec0, tvec0,
                                                                    camera0_matrix, camera0_fisheye_model);
@@ -61,10 +59,10 @@ int main()
   window.showWidget("Axis1", cv::viz::WCoordinateSystem());
   window.showWidget("Camera1", cv::viz::WCameraPosition(camera1_matrix, 1, cv::viz::Color::green()));
 
-  cv::Mat object_points_C3(object_points.rows, 1, CV_64FC3);
-  for (int i = 0; i < object_points.rows; ++i)
+  cv::Mat object_points_C3(object_points.size(), 1, CV_64FC3);
+  for (int i = 0; i < object_points.size(); ++i)
   {
-    const auto object_point = cv::Point3d{object_points(i, 0), object_points(i, 1), object_points(i, 2)};
+    const auto object_point = object_points[i];
     object_points_C3.at<cv::Vec3d>(i) = object_point;
 
     window.showWidget("C0 t0 L" + std::to_string(i), cv::viz::WLine({objects_from_camera0.translation()(0),

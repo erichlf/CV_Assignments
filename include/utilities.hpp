@@ -2,40 +2,12 @@
 
 #include <vector>
 #include <tuple>
+#include <algorithm>
+#include <limits>
+#include <numeric>
 
 namespace assignments
 {
-
-/*
- * \brief object containing correspondence between object_points (3D) and image_points (2D)
- */
-template <int N>
-class Correspondences
-{
- private:
-  cv::Matx<double, N, 3> object_points_;
-  std::vector<cv::Point2d> image_points_;
-
- public:
-  /*
-   * \brief constructor for Correspondences
-   * \param object_points   3D points
-   * \param image_points    2D points
-   */
-  Correspondences(cv::Matx<double, N, 3> object_points, std::vector<cv::Point2d> image_points) :
-    object_points_(object_points),
-    image_points_(image_points) {};
-
-  /*
-   * \brief getter for image_points
-   */
-  std::vector<cv::Point2d> get_image_points() { return image_points_; };
-
-  /*
-   * \brief getter for object_points
-   */
-  cv::Matx<double, N, 3> get_object_points() { return object_points_; };
-};
 
 /*
  * \brief convert a rotation vector and translation vector to a transformation matrix
@@ -87,8 +59,7 @@ cv::Point2d get_image_point_(cv::Point2d distorted_point, const cv::Matx33d K)
  * \param dist_coefficients distortion coefficients k1, k2, k3, k4
  * \param image_points  points in image after distortion
  */
-template <int N>
-void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
+void project_points(const std::vector<cv::Point3d>& world_points, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
                     const cv::Matx33d& K, const cv::Matx<double, 1, 4>& dist_coeffs,
                     std::vector<cv::Point2d>& image_points)
 {
@@ -99,12 +70,12 @@ void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d&
   const auto k3 = dist_coeffs(0, 2);
   const auto k4 = dist_coeffs(0, 3);
 
-  for (int i = 0; i < N; ++i)
+  for (int i = 0; i < world_points.size(); ++i)
   {
     const auto& [x, y, z] = transform_point(transform,
-                                            {world_points(i, 0),
-                                             world_points(i, 1),
-                                             world_points(i, 2)});
+                                            {world_points[i].x,
+                                             world_points[i].y,
+                                             world_points[i].z});
     const auto xp = x / z;
     const auto yp = y / z;
 
@@ -132,8 +103,7 @@ void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d&
  * \param dist_coefficients distortion coefficients k1, k2, p1, p2, k3, k4
  * \param image_points  points in image after distortion
  */
-template <int N>
-void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
+void project_points(const std::vector<cv::Point3d>& world_points, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
                     const cv::Matx33d& K, const cv::Matx<double , 1, 5>& dist_coeffs,
                     std::vector<cv::Point2d>& image_points)
 {
@@ -146,12 +116,12 @@ void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d&
   const auto p2 = dist_coeffs(0, 3);
   const auto k3 = dist_coeffs(0, 4);
 
-  for (int i = 0; i < N; ++i)
+  for (int i = 0; i < world_points.size(); ++i)
   {
     const auto& [x, y, z] = transform_point(transform,
-                                           {world_points(i, 0),
-                                            world_points(i, 1),
-                                            world_points(i, 2)});
+                                            {world_points[i].x,
+                                             world_points[i].y,
+                                             world_points[i].z});
 
     const double xp = x / z;
     const double yp = y / z;
@@ -181,8 +151,7 @@ void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d&
  * \param dist_coefficients distortion coefficients k1, k2, p1, p2, k3, k4, k5, k6
  * \param image_points  points in image after distortion
  */
-template <int N>
-void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
+void project_points(const std::vector<cv::Point3d>& world_points, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
                     const cv::Matx33d& K, const cv::Matx<double , 1, 8>& dist_coeffs,
                     std::vector<cv::Point2d>& image_points)
 {
@@ -197,12 +166,12 @@ void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d&
   const auto k5 = dist_coeffs(0, 6);
   const auto k6 = dist_coeffs(0, 7);
 
-  for (int i = 0; i < N; ++i)
+  for (int i = 0; i < world_points.size(); ++i)
   {
     const auto& [x, y, z] = transform_point(transform,
-                                            {world_points(i, 0),
-                                             world_points(i, 1),
-                                             world_points(i, 2)});
+                                            {world_points[i].x,
+                                             world_points[i].y,
+                                             world_points[i].z});
 
     const double xp = x / z;
     const double yp = y / z;
@@ -233,11 +202,10 @@ void project_points(const cv::Matx<double, N, 3>& world_points, const cv::Vec3d&
  * \param camera_matrix camera matrix
  * \param dist_coeffs fisheye distortion coefficients
  */
-template <int N>
-double reprojection_error(const cv::Matx<double, N, 3>& object_points, const std::vector<cv::Point2d>& image_points,
+double reprojection_error(const std::vector<cv::Point3d>& object_points,
+                          const std::vector<cv::Point2d>& image_points,
                           const cv::Vec3d& rvec, const cv::Vec3d& tvec,
-                          const cv::Matx33d& camera_matrix,
-                          const cv::Matx<double, 1, 4>& dist_coeffs)
+                          const cv::Matx33d& camera_matrix, const cv::Matx<double, 1, 4>& dist_coeffs)
 {
   std::vector<cv::Point2d> projected_image_points;
 
@@ -245,7 +213,7 @@ double reprojection_error(const cv::Matx<double, N, 3>& object_points, const std
   project_points(object_points, rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
 
   double error = 0;
-  for (int i = 0; i < N; ++i)
+  for (int i = 0; i < object_points.size(); ++i)
     error += cv::norm(cv::Mat(image_points[i]), cv::Mat(projected_image_points[i]), CV_L2);
 
   error /= image_points.size();
@@ -255,18 +223,17 @@ double reprojection_error(const cv::Matx<double, N, 3>& object_points, const std
 
 /*
  * \brief solvePnP for a fisheye model
- * \param correspondences   the 3D to 2D correspondences
+ * \param object_points   the 3D portion of 3D to 2D correspondences
+ * \param image_points   the 2D portion of 3D to 2D correspondences
  * \param camera_matrix   matrix containing camera intrinsics
  * \param fisheye_model   fisheye model to use in deprojection
  */
-template <int N>
-std::tuple<cv::Vec3d, cv::Vec3d> fisheye_solvePnP(Correspondences<N> correspondences, cv::Matx33d camera_matrix,
-                                                  cv::Matx<double, 1, 4> fisheye_model)
+std::tuple<cv::Vec3d, cv::Vec3d> fisheye_solvePnP(const std::vector<cv::Point3d>& object_points,
+                                                  const std::vector<cv::Point2d>& image_points,
+                                                  const cv::Matx33d& camera_matrix,
+                                                  const cv::Matx<double, 1, 4>& fisheye_model)
 {
   cv::Matx<double, 1, 4> no_distortion_model(0, 0, 0, 0);
-
-  const auto object_points = correspondences.get_object_points();
-  const auto image_points = correspondences.get_image_points();
 
   // undistort points so that we can use cv::solvePnP
   std::vector<cv::Point2d> camera_undistorted_image_points;
@@ -278,6 +245,104 @@ std::tuple<cv::Vec3d, cv::Vec3d> fisheye_solvePnP(Correspondences<N> corresponde
   cv::solvePnP(object_points, camera_undistorted_image_points, camera_matrix, no_distortion_model, rvec, tvec);
 
   return {rvec, tvec};
+}
+
+std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>>
+get_random_subset_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d> image_points,
+            const int num_model_points=4)
+{
+  std::vector<int> indices(object_points.size());
+  std::iota(indices.begin(), indices.end(), 0);
+
+  std::vector<cv::Point3d> object_points_subset;
+  std::vector<cv::Point2d> image_points_subset;
+  for (int i = 0; i < num_model_points; ++i)
+  {
+    object_points_subset.push_back(object_points[indices[i]]);
+    image_points_subset.push_back(image_points[indices[i]]);
+  }
+
+  return {object_points_subset, image_points_subset};
+}
+
+std::tuple<std::vector<int>, std::vector<int>>
+get_liers_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d>& image_points,
+           const cv::Vec3d& rvec, const cv::Vec3d& tvec,
+           const cv::Matx33d& camera_matrix, const cv::Matx<double , 1, 4>& fisheye_model,
+           const double threshold)
+{
+  std::vector<int> inliers;
+  std::vector<int> outliers;
+  for(int i = 0; i < object_points.size(); i++)
+  {
+    const auto error = reprojection_error({object_points[i]}, {image_points[i]}, rvec, tvec, camera_matrix,
+                                          fisheye_model);
+    if (error < threshold)
+      inliers.push_back(i);
+    else
+      outliers.push_back(i);
+  }
+
+  return {inliers, outliers};
+}
+
+int ransac_update_num_iters_(const double confidence, const double outlier_ratio, const int max_iters)
+{
+  const int num_model_points = 4;
+  // avoid inf's & nan's
+  const auto double_min = std::numeric_limits<double>::min();
+  double num = std::max(1. - confidence, double_min);
+  double denom = 1. - std::pow(1. - outlier_ratio, num_model_points);
+  if (denom < double_min)
+    return 0;
+
+  num = std::log(num);
+  denom = std::log(denom);
+
+  return (denom >= 0 || -num >= max_iters * (-denom)) ? max_iters : std::round(num / denom);
+}
+
+std::tuple<cv::Vec3d, cv::Vec3d, std::vector<int>, std::vector<int>>
+fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
+                       const std::vector<cv::Point2d> image_points,
+                       const cv::Matx33d& camera_matrix, const cv::Matx<double, 1, 4>& fisheye_model,
+                       const double threshold=1, const double confidence=0.99, const int max_iters=100,
+                       const int num_model_points=4)
+{
+  std::vector<int> best_inlier_index;
+  std::vector<int> best_outlier_index;
+  cv::Vec3d best_rvec, best_tvec;
+  int num_iters = max_iters;
+
+  int iter;
+  for(iter = 0; iter < num_iters; iter++)
+  {
+    auto const& [object_subset, image_subset] = get_random_subset_(object_points, image_points, num_model_points);
+
+    const auto& [rvec, tvec] = fisheye_solvePnP(object_subset, image_subset, camera_matrix, fisheye_model);
+
+    std::vector<int> inlier_index;
+    std::vector<int> outlier_index;
+    std::tie(inlier_index, outlier_index) = get_liers_(object_points, image_points, rvec, tvec, camera_matrix,
+                                                       fisheye_model, threshold);
+
+    if(inlier_index.size() > best_inlier_index.size())
+    {
+      double outlier_ratio = (double)(inlier_index.size() - best_inlier_index.size()) / inlier_index.size();
+      num_iters = ransac_update_num_iters_(confidence, outlier_ratio, num_iters);
+
+      best_inlier_index = inlier_index;
+      best_outlier_index = outlier_index;
+
+      best_rvec = rvec;
+      best_tvec = tvec;
+    }
+  }
+
+  std::string plural = (iter != 1) ? "s." : ".";
+  std::cout << "RANSAC converged in " << iter << " iteration" << plural << std::endl;
+
+  return {best_rvec, best_tvec, best_inlier_index, best_outlier_index};
 }
 
 };  // namespace assignments

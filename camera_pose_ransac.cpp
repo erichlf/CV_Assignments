@@ -24,10 +24,10 @@ void plot_points(cv::viz::Viz3d& window, const std::vector<cv::Point3d>& object_
   {
     std::cout << object_points[i] << " -> " << image_points[i]<< std::endl;
 
-    window.showWidget("L" + std::to_string(i), cv::viz::WLine({objects_from_camera.translation()(0),
-                                                               objects_from_camera.translation()(1),
-                                                               objects_from_camera.translation()(2)},
-                                                              object_points[i]));
+    window.showWidget("L" + str[0] + std::to_string(i), cv::viz::WLine({objects_from_camera.translation()(0),
+                                                                        objects_from_camera.translation()(1),
+                                                                        objects_from_camera.translation()(2)},
+                                                                       object_points[i], color));
 
     window.showWidget(str[0] + std::to_string(i), cv::viz::WText3D(str[0] + std::to_string(i), object_points[i], 0.25));
   }

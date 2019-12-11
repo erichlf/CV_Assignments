@@ -240,34 +240,38 @@ std::tuple<cv::Vec3d, cv::Vec3d> fisheye_solvePnP(const std::vector<cv::Point3d>
   cv::fisheye::undistortPoints(image_points, camera_undistorted_image_points, camera_matrix, fisheye_model,
                                cv::noArray(), camera_matrix);
 
+  int iters = 100;
   cv::Vec3d rvec;
   cv::Vec3d tvec;
   cv::solvePnP(object_points, camera_undistorted_image_points, camera_matrix, no_distortion_model, rvec, tvec);
+  // cv::solvePnPRansac(object_points, camera_undistorted_image_points, camera_matrix, no_distortion_model, rvec, tvec);
 
   return {rvec, tvec};
 }
 
-std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>>
+std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>, std::vector<int>>
 get_random_subset_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d> image_points,
-            const int num_model_points=4)
+                   const int num_model_points=4)
 {
   std::vector<int> indices(object_points.size());
-  std::iota(indices.begin(), indices.end(), 0);
+  std::iota(indices.begin(), indices.end(), 0);  // vector containing 0,...,indices.size() - 1
+
+  indices.erase(indices.begin() + num_model_points, indices.end()); // the points that were included in the subset
 
   std::vector<cv::Point3d> object_points_subset;
   std::vector<cv::Point2d> image_points_subset;
-  for (int i = 0; i < num_model_points; ++i)
+  for (const auto& index : indices)
   {
-    object_points_subset.push_back(object_points[indices[i]]);
-    image_points_subset.push_back(image_points[indices[i]]);
+    object_points_subset.push_back(object_points[index]);
+    image_points_subset.push_back(image_points[index]);
   }
 
-  return {object_points_subset, image_points_subset};
+  return {object_points_subset, image_points_subset, indices};
 }
 
 std::tuple<std::vector<int>, std::vector<int>>
 get_liers_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d>& image_points,
-           const cv::Vec3d& rvec, const cv::Vec3d& tvec,
+           const std::vector<int>& inlier_index, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
            const cv::Matx33d& camera_matrix, const cv::Matx<double , 1, 4>& fisheye_model,
            const double threshold)
 {
@@ -275,8 +279,9 @@ get_liers_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::
   std::vector<int> outliers;
   for(int i = 0; i < object_points.size(); i++)
   {
-    const auto error = reprojection_error({object_points[i]}, {image_points[i]}, rvec, tvec, camera_matrix,
-                                          fisheye_model);
+    bool in_model = std::find(inlier_index.begin(), inlier_index.end(), i) != inlier_index.end();
+    const auto error = in_model ? 0 : reprojection_error({object_points[i]}, {image_points[i]}, rvec, tvec,
+                                                         camera_matrix, fisheye_model);
     if (error < threshold)
       inliers.push_back(i);
     else
@@ -286,9 +291,9 @@ get_liers_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::
   return {inliers, outliers};
 }
 
-int ransac_update_num_iters_(const double confidence, const double outlier_ratio, const int max_iters)
+int ransac_update_num_iters_(const double confidence, const double outlier_ratio, const int max_iters,
+                            const int num_model_points=4)
 {
-  const int num_model_points = 4;
   // avoid inf's & nan's
   const auto double_min = std::numeric_limits<double>::min();
   double num = std::max(1. - confidence, double_min);
@@ -307,29 +312,31 @@ fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
                        const std::vector<cv::Point2d> image_points,
                        const cv::Matx33d& camera_matrix, const cv::Matx<double, 1, 4>& fisheye_model,
                        const double threshold=1, const double confidence=0.99, const int max_iters=100,
-                       const int num_model_points=4)
+                       const double ratio=0.25, const int num_model_points=4)
 {
   std::vector<int> best_inlier_index;
   std::vector<int> best_outlier_index;
   cv::Vec3d best_rvec, best_tvec;
-  int num_iters = max_iters;
+  int num_iters = ransac_update_num_iters_(confidence, 0.45, max_iters, num_model_points);
 
   int iter;
   for(iter = 0; iter < num_iters; iter++)
   {
-    auto const& [object_subset, image_subset] = get_random_subset_(object_points, image_points, num_model_points);
+    auto const& [object_subset, image_subset, subset_indices] = get_random_subset_(object_points, image_points,
+                                                                                   num_model_points);
 
     const auto& [rvec, tvec] = fisheye_solvePnP(object_subset, image_subset, camera_matrix, fisheye_model);
+    // const auto& [rvec, tvec] = fisheye_solvePnP(object_points, image_points, camera_matrix, fisheye_model);
 
     std::vector<int> inlier_index;
     std::vector<int> outlier_index;
-    std::tie(inlier_index, outlier_index) = get_liers_(object_points, image_points, rvec, tvec, camera_matrix,
-                                                       fisheye_model, threshold);
+    std::tie(inlier_index, outlier_index) = get_liers_(object_points, image_points, subset_indices, rvec, tvec,
+                                                       camera_matrix, fisheye_model, threshold);
 
-    if(inlier_index.size() > best_inlier_index.size())
+    if(inlier_index.size() - subset_indices.size() >= ratio * object_points.size())
     {
-      double outlier_ratio = (double)(inlier_index.size() - best_inlier_index.size()) / inlier_index.size();
-      num_iters = ransac_update_num_iters_(confidence, outlier_ratio, num_iters);
+      double outlier_ratio = (double)outlier_index.size() / (double)object_points.size();
+      num_iters = ransac_update_num_iters_(confidence, outlier_ratio, num_iters, num_model_points);
 
       best_inlier_index = inlier_index;
       best_outlier_index = outlier_index;
@@ -337,6 +344,7 @@ fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
       best_rvec = rvec;
       best_tvec = tvec;
     }
+    // break;
   }
 
   std::string plural = (iter != 1) ? "s." : ".";

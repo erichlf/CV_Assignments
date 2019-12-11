@@ -66,7 +66,8 @@ int main()
   std::vector<int> outlier_indices;
   std::tie(rvec, tvec, inlier_indices, outlier_indices) = assignments::fisheye_solvePnPRansac(object_points,
                                                                                               image_points,
-                                                                                              camera_matrix, fisheye_model);
+                                                                                              camera_matrix,
+                                                                                              fisheye_model);
 
   std::vector<cv::Point3d> object_inliers;
   std::vector<cv::Point2d> image_inliers;

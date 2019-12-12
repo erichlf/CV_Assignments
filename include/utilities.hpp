@@ -256,6 +256,8 @@ get_random_subset_(const std::vector<cv::Point3d>& object_points, const std::vec
   std::vector<int> indices(object_points.size());
   std::iota(indices.begin(), indices.end(), 0);  // vector containing 0,...,indices.size() - 1
 
+  std::random_shuffle(indices.begin(), indices.end());
+
   indices.erase(indices.begin() + num_model_points, indices.end()); // the points that were included in the subset
 
   std::vector<cv::Point3d> object_points_subset;

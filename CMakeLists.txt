@@ -3,7 +3,23 @@ cmake_minimum_required(VERSION 3.10)
 project(CV_Assignments)
 
 find_package(OpenCV 3 REQUIRED)
+find_package(Eigen3 3.3.4 REQUIRED)
+find_package(Ceres REQUIRED)
 find_package(jsoncpp REQUIRED)
+
+# these are used by utilities so just include them everywhere
+add_library(cv_assignments INTERFACE)
+
+target_include_directories(cv_assignments
+                           INTERFACE
+                                include
+                          )
+
+target_link_libraries(cv_assignments
+                      INTERFACE
+                        ${BOOST_LIBRARIES}
+                        ${OpenCV_LIBRARIES}
+                     )
 
 add_executable(distortion
                distortion.cpp
@@ -12,14 +28,9 @@ add_executable(distortion
 set_target_properties(distortion
                       PROPERTIES CXX_STANDARD 17)
 
-target_include_directories(distortion
-                           PUBLIC
-                               ${CMAKE_CURRENT_SOURCE_DIR}/include
-                           )
-
 target_link_libraries(distortion
                       PRIVATE
-                          ${OpenCV_LIBRARIES}
+                          cv_assignments
                       )
 
 add_executable(camera_pose
@@ -29,14 +40,9 @@ add_executable(camera_pose
 set_target_properties(camera_pose
                       PROPERTIES CXX_STANDARD 17)
 
-target_include_directories(camera_pose
-                           PUBLIC
-                               ${CMAKE_CURRENT_SOURCE_DIR}/include
-                           )
-
 target_link_libraries(camera_pose
                       PRIVATE
-                          ${OpenCV_LIBRARIES}
+                          cv_assignments
                       )
 
 add_executable(camera_to_camera
@@ -46,14 +52,9 @@ add_executable(camera_to_camera
 set_target_properties(camera_to_camera
                       PROPERTIES CXX_STANDARD 17)
 
-target_include_directories(camera_to_camera
-                           PUBLIC
-                               ${CMAKE_CURRENT_SOURCE_DIR}/include
-                           )
-
 target_link_libraries(camera_to_camera
                       PRIVATE
-                          ${OpenCV_LIBRARIES}
+                          cv_assignments
                       )
 
 add_executable(camera_pose_ransac
@@ -63,12 +64,25 @@ add_executable(camera_pose_ransac
 set_target_properties(camera_pose_ransac
                       PROPERTIES CXX_STANDARD 17)
 
-target_include_directories(camera_pose_ransac
-                           PUBLIC
-                               ${CMAKE_CURRENT_SOURCE_DIR}/include
-                           )
-
 target_link_libraries(camera_pose_ransac
                       PRIVATE
-                          ${OpenCV_LIBRARIES}
+                          cv_assignments
+                      )
+add_executable(bundle_adjustment
+               bundle_adjustment.cpp
+               )
+
+set_target_properties(bundle_adjustment
+                      PROPERTIES CXX_STANDARD 17)
+
+target_include_directories(bundle_adjustment
+                           PRIVATE
+                               ${CERES_INCLUDE_DIRS}
+                           )
+
+target_link_libraries(bundle_adjustment
+                      PRIVATE
+                          cv_assignments
+                          ${CERES_LIBRARIES}
+                          jsoncpp_lib
                       )

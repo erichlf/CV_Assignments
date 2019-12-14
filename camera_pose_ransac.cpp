@@ -1,21 +1,5 @@
 #include "utilities.hpp"
 
-std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>>
-get_liers(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d>& image_points,
-            const std::vector<int>& lier_indices)
-{
-  std::vector<cv::Point2d> image_liers;
-  std::vector<cv::Point3d> object_liers;
-
-  for (const auto& lier_index : lier_indices)
-  {
-    object_liers.push_back(object_points[lier_index]);
-    image_liers.push_back(image_points[lier_index]);
-  }
-
-  return {object_liers, image_liers};
-}
-
 void plot_points(cv::viz::Viz3d& window, const std::vector<cv::Point3d>& object_points,
                  const std::vector<cv::Point2d>& image_points, cv::Affine3d objects_from_camera,
                  std::string str, cv::viz::Color color)
@@ -61,26 +45,28 @@ int main()
                                         {610.223, 1090.54},
                                         {610.346, 1093.88}};
 
+  int ransac_iters;
   cv::Vec3f rvec, tvec;
   std::vector<int> inlier_indices;
   std::vector<int> outlier_indices;
-  std::tie(rvec, tvec, inlier_indices, outlier_indices) = assignments::fisheye_solvePnPRansac(object_points,
-                                                                                              image_points,
-                                                                                              camera_matrix,
-                                                                                              fisheye_model);
+  std::tie(rvec, tvec, inlier_indices,
+           outlier_indices, ransac_iters) = assignments::fisheye_solvePnPRansac(object_points, image_points,
+                                                                                camera_matrix, fisheye_model);
 
   std::vector<cv::Point3d> object_inliers;
   std::vector<cv::Point2d> image_inliers;
   std::vector<cv::Point3d> object_outliers;
   std::vector<cv::Point2d> image_outliers;
 
-  std::tie(object_inliers, image_inliers) = get_liers(object_points, image_points, inlier_indices);
+  std::tie(object_inliers, image_inliers) = assignments::get_liers(object_points, image_points, inlier_indices);
+  std::tie(object_outliers, image_outliers) = assignments::get_liers(object_points, image_points, outlier_indices);
   const auto reprojection_error = assignments::reprojection_error(object_inliers, image_inliers, rvec, tvec,
                                                                   camera_matrix, fisheye_model);
-  std::tie(object_outliers, image_outliers) = get_liers(object_points, image_points, outlier_indices);
 
   const auto objects_from_camera = cv::Affine3f(rvec, tvec).inv();
 
+  std::string plural = (ransac_iters != 1) ? "s." : ".";
+  std::cout << "RANSAC converged in " << ransac_iters << " iteration" << plural << std::endl;
   std::cout << "Rotation:" << std::endl;
   std::cout << objects_from_camera.rvec() << std::endl;
   std::cout << "Translation:" << std::endl;

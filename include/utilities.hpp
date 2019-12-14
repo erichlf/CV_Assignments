@@ -9,6 +9,8 @@
 namespace assignments
 {
 
+namespace
+{
 /*
  * \brief convert a rotation vector and translation vector to a transformation matrix
  */
@@ -49,6 +51,29 @@ cv::Point2d get_image_point_(cv::Point2d distorted_point, const cv::Matx33d K)
 
   return {u, v};
 }
+
+std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>, std::vector<int>>
+get_random_subset_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d> image_points,
+                   const int num_model_points = 4)
+{
+  std::vector<int> indices(object_points.size());
+  std::iota(indices.begin(), indices.end(), 0);  // vector containing 0,...,indices.size() - 1
+
+  std::random_shuffle(indices.begin(), indices.end());
+
+  indices.erase(indices.begin() + num_model_points, indices.end()); // the points that were included in the subset
+
+  std::vector<cv::Point3d> object_points_subset;
+  std::vector<cv::Point2d> image_points_subset;
+  for (const auto& index : indices)
+  {
+    object_points_subset.push_back(object_points[index]);
+    image_points_subset.push_back(image_points[index]);
+  }
+
+  return {object_points_subset, image_points_subset, indices};
+}
+} // anonymous namespace
 
 /*
  * \brief projects 3D world point into image points with fisheye distortion
@@ -249,33 +274,11 @@ std::tuple<cv::Vec3d, cv::Vec3d> fisheye_solvePnP(const std::vector<cv::Point3d>
   return {rvec, tvec};
 }
 
-std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>, std::vector<int>>
-get_random_subset_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d> image_points,
-                   const int num_model_points=4)
-{
-  std::vector<int> indices(object_points.size());
-  std::iota(indices.begin(), indices.end(), 0);  // vector containing 0,...,indices.size() - 1
-
-  std::random_shuffle(indices.begin(), indices.end());
-
-  indices.erase(indices.begin() + num_model_points, indices.end()); // the points that were included in the subset
-
-  std::vector<cv::Point3d> object_points_subset;
-  std::vector<cv::Point2d> image_points_subset;
-  for (const auto& index : indices)
-  {
-    object_points_subset.push_back(object_points[index]);
-    image_points_subset.push_back(image_points[index]);
-  }
-
-  return {object_points_subset, image_points_subset, indices};
-}
-
 std::tuple<std::vector<int>, std::vector<int>>
-get_liers_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d>& image_points,
-           const std::vector<int>& inlier_index, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
-           const cv::Matx33d& camera_matrix, const cv::Matx<double , 1, 4>& fisheye_model,
-           const double threshold)
+get_liers_index_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d>& image_points,
+                 const std::vector<int>& inlier_index, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
+                 const cv::Matx33d& camera_matrix, const cv::Matx<double , 1, 4>& fisheye_model,
+                 const double threshold)
 {
   std::vector<int> inliers;
   std::vector<int> outliers;
@@ -291,6 +294,22 @@ get_liers_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::
   }
 
   return {inliers, outliers};
+}
+
+std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>>
+get_liers(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d>& image_points,
+          const std::vector<int>& lier_indices)
+{
+  std::vector<cv::Point2d> image_liers;
+  std::vector<cv::Point3d> object_liers;
+
+  for (const auto& lier_index : lier_indices)
+  {
+    object_liers.push_back(object_points[lier_index]);
+    image_liers.push_back(image_points[lier_index]);
+  }
+
+  return {object_liers, image_liers};
 }
 
 int ransac_update_num_iters_(const double confidence, const double outlier_ratio, const int max_iters,
@@ -309,7 +328,7 @@ int ransac_update_num_iters_(const double confidence, const double outlier_ratio
   return (denom >= 0 || -num >= max_iters * (-denom)) ? max_iters : std::round(num / denom);
 }
 
-std::tuple<cv::Vec3d, cv::Vec3d, std::vector<int>, std::vector<int>>
+std::tuple<cv::Vec3d, cv::Vec3d, std::vector<int>, std::vector<int>, int>
 fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
                        const std::vector<cv::Point2d> image_points,
                        const cv::Matx33d& camera_matrix, const cv::Matx<double, 1, 4>& fisheye_model,
@@ -332,8 +351,8 @@ fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
 
     std::vector<int> inlier_index;
     std::vector<int> outlier_index;
-    std::tie(inlier_index, outlier_index) = get_liers_(object_points, image_points, subset_indices, rvec, tvec,
-                                                       camera_matrix, fisheye_model, threshold);
+    std::tie(inlier_index, outlier_index) = get_liers_index_(object_points, image_points, subset_indices, rvec, tvec,
+                                                             camera_matrix, fisheye_model, threshold);
 
     if(inlier_index.size() - subset_indices.size() >= ratio * object_points.size())
     {
@@ -349,10 +368,7 @@ fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
     // break;
   }
 
-  std::string plural = (iter != 1) ? "s." : ".";
-  std::cout << "RANSAC converged in " << iter << " iteration" << plural << std::endl;
-
-  return {best_rvec, best_tvec, best_inlier_index, best_outlier_index};
+  return {best_rvec, best_tvec, best_inlier_index, best_outlier_index, iter};
 }
 
 };  // namespace assignments

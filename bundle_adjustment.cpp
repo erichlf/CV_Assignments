@@ -80,14 +80,8 @@ int main(int argc, char** argv)
   const auto pnp_reprojection_error = assignments::reprojection_error(object_points, image_points, pnp_rvec, pnp_tvec,
                                                                       camera_matrix, fisheye_model);
 
-  const auto pnp_objects_from_camera = cv::Affine3f(pnp_rvec, pnp_tvec).inv();
-
-  std::cout << "Rotation:" << std::endl;
-  std::cout << pnp_objects_from_camera.rvec() << std::endl;
-  std::cout << "Translation:" << std::endl;
-  std::cout << pnp_objects_from_camera.translation() << std::endl;
-  std::cout << "Reprojection Error:" << std::endl;
-  std::cout << pnp_reprojection_error << std::endl;
+  const auto pnp_objects_from_camera = cv::Affine3d(pnp_rvec, pnp_tvec).inv();
+  assignments::print_result(pnp_objects_from_camera, pnp_reprojection_error);
 
   std::cout <<
   "******************************************* solvePnP RANSAC ********************************************************"
@@ -114,14 +108,8 @@ int main(int argc, char** argv)
                                                                          ransac_rvec, ransac_tvec, camera_matrix,
                                                                          fisheye_model);
 
-  const auto ransac_objects_from_camera = cv::Affine3f(ransac_rvec, ransac_tvec).inv();
-
-  std::cout << "Rotation:" << std::endl;
-  std::cout << ransac_objects_from_camera.rvec() << std::endl;
-  std::cout << "Translation:" << std::endl;
-  std::cout << ransac_objects_from_camera.translation() << std::endl;
-  std::cout << "Reprojection Error:" << std::endl;
-  std::cout << ransac_reprojection_error << std::endl;
+  const auto ransac_objects_from_camera = cv::Affine3d(ransac_rvec, ransac_tvec).inv();
+  assignments::print_result(ransac_objects_from_camera, ransac_reprojection_error);
 
   /********************************************* Bundle Adjustment ****************************************************/
 
@@ -142,14 +130,9 @@ int main(int argc, char** argv)
   const auto BAFNL_reprojection_error = assignments::reprojection_error(object_points, image_points,
                                                                         rvec_full_no_loss, tvec_full_no_loss,
                                                                         camera_matrix, fisheye_model);
-  const auto BAFNL_objects_from_camera = cv::Affine3f(rvec_full_no_loss, tvec_full_no_loss).inv();
 
-  std::cout << "Rotation:" << std::endl;
-  std::cout << BAFNL_objects_from_camera.rvec() << std::endl;
-  std::cout << "Translation:" << std::endl;
-  std::cout << BAFNL_objects_from_camera.translation() << std::endl;
-  std::cout << "Reprojection Error:" << std::endl;
-  std::cout << BAFNL_reprojection_error << std::endl;
+  const auto BAFNL_objects_from_camera = cv::Affine3d(rvec_full_no_loss, tvec_full_no_loss).inv();
+  assignments::print_result(BAFNL_objects_from_camera, BAFNL_reprojection_error);
 
   std::cout <<
   "*********************************** Bundle Adjustment with Inliers Only ********************************************"
@@ -168,20 +151,14 @@ int main(int argc, char** argv)
                                                                         rvec_inliers_no_loss, tvec_inliers_no_loss,
                                                                         camera_matrix, fisheye_model);
 
-  const auto BAINL_objects_from_camera = cv::Affine3f(rvec_inliers_no_loss, tvec_inliers_no_loss).inv();
-
-  std::cout << "Rotation:" << std::endl;
-  std::cout << BAINL_objects_from_camera.rvec() << std::endl;
-  std::cout << "Translation:" << std::endl;
-  std::cout << BAINL_objects_from_camera.translation() << std::endl;
-  std::cout << "Reprojection Error:" << std::endl;
-  std::cout << BAINL_reprojection_error << std::endl;
+  const auto BAINL_objects_from_camera = cv::Affine3d(rvec_inliers_no_loss, tvec_inliers_no_loss).inv();
+  assignments::print_result(BAINL_objects_from_camera, BAINL_reprojection_error);
 
   std::cout <<
   "***************************** Bundle Adjustment with Inliers and Outliers and LossFunction *************************"
             << std::endl;
 
-  loss_function = new ceres::CauchyLoss(0.01);  // set our loss function
+  loss_function = new ceres::HuberLoss(0.1);  // set our loss function
 
   cv::Vec3d rvec_full_with_loss;
   cv::Vec3d tvec_full_with_loss;
@@ -194,14 +171,9 @@ int main(int argc, char** argv)
   const auto BAFWL_reprojection_error = assignments::reprojection_error(object_points, image_points,
                                                                         rvec_full_with_loss, tvec_full_with_loss,
                                                                         camera_matrix, fisheye_model);
-  const auto BAFWL_objects_from_camera = cv::Affine3f(rvec_full_with_loss, tvec_full_with_loss).inv();
 
-  std::cout << "Rotation:" << std::endl;
-  std::cout << BAFWL_objects_from_camera.rvec() << std::endl;
-  std::cout << "Translation:" << std::endl;
-  std::cout << BAFWL_objects_from_camera.translation() << std::endl;
-  std::cout << "Reprojection Error:" << std::endl;
-  std::cout << BAFWL_reprojection_error << std::endl;
+  const auto BAFWL_objects_from_camera = cv::Affine3d(rvec_full_with_loss, tvec_full_with_loss).inv();
+  assignments::print_result(BAFWL_objects_from_camera, BAFWL_reprojection_error);
 
   std::cout <<
   "***************************** Bundle Adjustment with Inliers Only and LossFunction *********************************"
@@ -220,14 +192,9 @@ int main(int argc, char** argv)
   const auto BAIWL_reprojection_error = assignments::reprojection_error(object_ransac_inliers, image_ransac_inliers,
                                                                         rvec_inliers_with_loss, tvec_inliers_with_loss,
                                                                         camera_matrix, fisheye_model);
-  const auto BAIWL_objects_from_camera = cv::Affine3f(rvec_inliers_with_loss, tvec_inliers_with_loss).inv();
 
-  std::cout << "Rotation:" << std::endl;
-  std::cout << BAIWL_objects_from_camera.rvec() << std::endl;
-  std::cout << "Translation:" << std::endl;
-  std::cout << BAIWL_objects_from_camera.translation() << std::endl;
-  std::cout << "Reprojection Error:" << std::endl;
-  std::cout << BAIWL_reprojection_error << std::endl;
+  const auto BAIWL_objects_from_camera = cv::Affine3d(rvec_inliers_with_loss, tvec_inliers_with_loss).inv();
+  assignments::print_result(BAIWL_objects_from_camera, BAIWL_reprojection_error);
 
   return EXIT_SUCCESS;
 }

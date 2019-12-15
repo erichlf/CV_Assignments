@@ -67,12 +67,7 @@ int main()
 
   std::string plural = (ransac_iters != 1) ? "s." : ".";
   std::cout << "RANSAC converged in " << ransac_iters << " iteration" << plural << std::endl;
-  std::cout << "Rotation:" << std::endl;
-  std::cout << objects_from_camera.rvec() << std::endl;
-  std::cout << "Translation:" << std::endl;
-  std::cout << objects_from_camera.translation() << std::endl;
-  std::cout << "Reprojection Error:" << std::endl;
-  std::cout << reprojection_error << std::endl;
+  assignments::print_result(objects_from_camera, reprojection_error);
 
   cv::viz::Viz3d window = cv::viz::Viz3d("Camera Pose");
   window.showWidget("Axis", cv::viz::WCoordinateSystem());

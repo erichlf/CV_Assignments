@@ -79,6 +79,16 @@ get_random_subset_(const std::vector<cv::Point3d>& object_points, const std::vec
 }
 } // anonymous namespace
 
+void print_result(const cv::Affine3d& objects_from_camera, const double reprojection_error)
+{
+  std::cout << "Rotation:" << std::endl;
+  std::cout << objects_from_camera.rvec() << std::endl;
+  std::cout << "Translation:" << std::endl;
+  std::cout << objects_from_camera.translation() << std::endl;
+  std::cout << "Reprojection Error:" << std::endl;
+  std::cout << reprojection_error << std::endl;
+}
+
 /*
  * \brief given a json file containing correspondences build the correspondences
  * \param json_file   string containing the location of the json file to read
@@ -103,6 +113,7 @@ std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>> load_corresponden
 
   return {world_points, image_points};
 }
+
 /*
  * \brief projects 3D world point into image points with fisheye distortion
  * \param world_points  3D world point data
@@ -302,6 +313,8 @@ std::tuple<cv::Vec3d, cv::Vec3d> fisheye_solvePnP(const std::vector<cv::Point3d>
   return {rvec, tvec};
 }
 
+namespace
+{
 std::tuple<std::vector<int>, std::vector<int>>
 get_liers_index_(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d>& image_points,
                  const std::vector<int>& inlier_index, const cv::Vec3d& rvec, const cv::Vec3d& tvec,
@@ -323,6 +336,7 @@ get_liers_index_(const std::vector<cv::Point3d>& object_points, const std::vecto
 
   return {inliers, outliers};
 }
+}  // namespace anonymous
 
 std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>>
 get_liers(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d>& image_points,

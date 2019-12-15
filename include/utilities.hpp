@@ -1,4 +1,6 @@
 #include <opencv2/opencv.hpp>
+#include <ceres/ceres.h>
+#include <jsoncpp/json/json.h>
 
 #include <vector>
 #include <tuple>
@@ -77,6 +79,30 @@ get_random_subset_(const std::vector<cv::Point3d>& object_points, const std::vec
 }
 } // anonymous namespace
 
+/*
+ * \brief given a json file containing correspondences build the correspondences
+ * \param json_file   string containing the location of the json file to read
+ * \return {object_points, image_points}  correspondences between 3D and 2D
+ */
+std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>> load_correspondence(const std::string& json_file)
+{
+  std::ifstream ifs(json_file);
+  Json::Value correspondences_json;
+  ifs >> correspondences_json;
+
+  std::vector<cv::Point3d> world_points;
+  std::vector<cv::Point2d> image_points;
+  for (const auto& correspondence : correspondences_json["correspondences"])
+  {
+    world_points.push_back({correspondence["world_point"][0].asDouble(),
+                            correspondence["world_point"][1].asDouble(),
+                            correspondence["world_point"][2].asDouble()});
+    image_points.push_back({correspondence["image_point"][0].asDouble(),
+                            correspondence["image_point"][1].asDouble()});
+  }
+
+  return {world_points, image_points};
+}
 /*
  * \brief projects 3D world point into image points with fisheye distortion
  * \param world_points  3D world point data
@@ -371,6 +397,82 @@ fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
   }
 
   return {best_rvec, best_tvec, best_inlier_index, best_outlier_index, iter};
+}
+
+/*
+ * \brief cost functor which only allows the rotation and translation vector to vary
+ */
+struct ReprojectionCost
+{
+ public:
+  ReprojectionCost(const cv::Matx33d* camera_matrix,
+                   const cv::Matx<double, 1, 4>* dist_coeffs,
+                   const cv::Point3d* object_point,
+                   const cv::Point2d* image_point) :
+      camera_matrix_(camera_matrix),
+      dist_coeffs_(dist_coeffs),
+      image_point_(image_point),
+      object_point_(object_point)
+  { }
+
+  template <typename T>
+  bool operator()(const T* const rvec_, const T* const tvec_, T* reprojection_error) const
+  {
+    cv::Vec3d rvec((double)rvec_[0], (double)rvec_[1], (double)rvec_[2]);
+    cv::Vec3d tvec((double)tvec_[0], (double)tvec_[1], (double)tvec_[2]);
+
+    *reprojection_error =  assignments::reprojection_error({*object_point_}, {*image_point_}, rvec, tvec,
+                                                           *camera_matrix_, *dist_coeffs_);
+
+    return true;
+  }
+
+  static ceres::CostFunction* Create(const cv::Matx33d* camera_matrix,
+                                     const cv::Matx<double, 1, 4>* dist_coeffs,
+                                     const cv::Point3d* object_point,
+                                     const cv::Point2d* image_point)
+  {
+    // each residual block returns a single number (1),takes a rotation vector (3), and a translation vector (3)
+    return (new ceres::NumericDiffCostFunction<ReprojectionCost, ceres::CENTRAL, 1, 3, 3>(
+        new ReprojectionCost(camera_matrix, dist_coeffs, object_point, image_point)));
+  }
+
+ private:
+  const cv::Matx33d* camera_matrix_;
+  const cv::Matx<double, 1, 4>* dist_coeffs_;
+  const cv::Point3d* object_point_;
+  const cv::Point2d* image_point_;
+};
+
+std::tuple<cv::Vec3d, cv::Vec3d> bundle_adjust(const std::vector<cv::Point3d>& object_points,
+                                               const std::vector<cv::Point2d>& image_points,
+                                               const cv::Matx33d& camera_matrix,
+                                               const cv::Matx<double, 1, 4>& fisheye_model,
+                                               const cv::Vec3d& rvec_, const cv::Vec3d& tvec_,
+                                               ceres::LossFunction* loss_function, bool print_summary=false)
+{
+  double rvec[] = {rvec_[0], rvec_[1], rvec_[2]};
+  double tvec[] = {tvec_[0], tvec_[1], tvec_[2]};
+
+  ceres::Problem problem;
+
+  for (size_t i = 0; i < object_points.size(); ++i) {
+    ceres::CostFunction* cost_function = assignments::ReprojectionCost::Create(&camera_matrix, &fisheye_model,
+                                                                               &object_points[i], &image_points[i]);
+    problem.AddResidualBlock(cost_function, loss_function, rvec, tvec);
+  }
+
+  ceres::Solver::Options options;
+  options.linear_solver_type = ceres::DENSE_SCHUR;
+  options.minimizer_progress_to_stdout = print_summary;
+
+  ceres::Solver::Summary summary;
+  ceres::Solve(options, &problem, &summary);
+
+  if (print_summary)
+    std::cout << summary.FullReport() << std::endl;
+
+  return {{rvec[0], rvec[1], rvec[2]}, {tvec[0], tvec[1], tvec[2]}};
 }
 
 };  // namespace assignments

@@ -13,12 +13,16 @@ add_library(cv_assignments INTERFACE)
 target_include_directories(cv_assignments
                            INTERFACE
                                 include
+                                ${EIGEN3_INCLUDE_DIRS}
+                                ${CERES_INCLUDE_DIRS}
                           )
 
 target_link_libraries(cv_assignments
                       INTERFACE
-                        ${BOOST_LIBRARIES}
-                        ${OpenCV_LIBRARIES}
+                            ${OpenCV_LIBRARIES}
+                            ${EIGEN3_LIBRARIES}
+                            ${CERES_LIBRARIES}
+                            jsoncpp_lib
                      )
 
 add_executable(distortion
@@ -75,14 +79,7 @@ add_executable(bundle_adjustment
 set_target_properties(bundle_adjustment
                       PROPERTIES CXX_STANDARD 17)
 
-target_include_directories(bundle_adjustment
-                           PRIVATE
-                               ${CERES_INCLUDE_DIRS}
-                           )
-
 target_link_libraries(bundle_adjustment
                       PRIVATE
                           cv_assignments
-                          ${CERES_LIBRARIES}
-                          jsoncpp_lib
                       )

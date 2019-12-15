@@ -6,6 +6,8 @@
 #include <limits>
 #include <numeric>
 
+#pragma once
+
 namespace assignments
 {
 

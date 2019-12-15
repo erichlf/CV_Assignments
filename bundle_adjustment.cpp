@@ -1,8 +1,60 @@
-
 #include <tuple>
 #include <string>
+#include <getopt.h>
 
 #include "utilities.hpp"
+
+struct Args
+{
+  std::string input_file;
+  bool verbose;
+};
+
+Args process_args(int argc, char** argv)
+{
+  int opt{0};
+  Args args{"", false};
+
+  auto usage = [argv]()
+  {
+    printf("Usage: %s [OPTION...]\n", argv[0]);
+    printf("Examples:\n");
+    printf("  bundle_adjustment -i correspondences.json -v\n");
+    printf("Options:\n");
+    printf("   -i, --input_file   json file containing the correspondences\n");
+    printf("   -v, --vertbose     print bundle adjustment iteration information\n");
+    exit(EXIT_SUCCESS);
+  };
+
+  static struct option options[] = {
+      {"input_file", required_argument, nullptr, 'i'},
+      {"verbose", optional_argument, nullptr, 'v'}
+  };
+
+  int option_index{0};
+  while ((opt = getopt_long(argc, argv, "i:v", options, &option_index)) != -1)
+  {
+    switch (opt)
+    {
+      case 'i':
+        args.input_file = std::string(optarg);  // convert from char* to string
+        break;
+      case 'v':
+        args.verbose = true;  // convert from char* to string
+        break;
+      default:
+        usage();
+        break;
+    }
+  }
+
+  if (args.input_file.empty())
+  {
+    usage();
+  }
+
+  return args;
+}
 
 int main(int argc, char** argv)
 {
@@ -15,7 +67,8 @@ int main(int argc, char** argv)
   std::vector<cv::Point3d> object_points;
   std::vector<cv::Point2d> image_points;
 
-  std::tie(object_points, image_points) = assignments::load_correspondence(argv[1]);
+  const auto options = process_args(argc, argv);
+  std::tie(object_points, image_points) = assignments::load_correspondence(options.input_file);
 
   std::cout <<
   "******************************************** solvePnP **************************************************************"
@@ -83,7 +136,8 @@ int main(int argc, char** argv)
 
   std::tie(rvec_full_no_loss, tvec_full_no_loss) = assignments::bundle_adjust(object_points, image_points,
                                                                               camera_matrix, fisheye_model,
-                                                                              ransac_rvec, ransac_tvec, loss_function);
+                                                                              ransac_rvec, ransac_tvec,
+                                                                              loss_function, options.verbose);
 
   const auto BAFNL_reprojection_error = assignments::reprojection_error(object_points, image_points,
                                                                         rvec_full_no_loss, tvec_full_no_loss,
@@ -108,7 +162,7 @@ int main(int argc, char** argv)
                                                                                     image_ransac_inliers,
                                                                                     camera_matrix, fisheye_model,
                                                                                     ransac_rvec, ransac_tvec,
-                                                                                    loss_function);
+                                                                                    loss_function, options.verbose);
 
   const auto BAINL_reprojection_error = assignments::reprojection_error(object_ransac_inliers, image_ransac_inliers,
                                                                         rvec_inliers_no_loss, tvec_inliers_no_loss,
@@ -134,7 +188,8 @@ int main(int argc, char** argv)
 
   std::tie(rvec_full_with_loss, tvec_full_with_loss) = assignments::bundle_adjust(object_points, image_points,
                                                                                   camera_matrix, fisheye_model,
-                                                                                  ransac_rvec, ransac_tvec, loss_function);
+                                                                                  ransac_rvec, ransac_tvec,
+                                                                                  loss_function, options.verbose);
 
   const auto BAFWL_reprojection_error = assignments::reprojection_error(object_points, image_points,
                                                                         rvec_full_with_loss, tvec_full_with_loss,
@@ -160,7 +215,7 @@ int main(int argc, char** argv)
                                                                                     image_ransac_inliers,
                                                                                     camera_matrix, fisheye_model,
                                                                                     ransac_rvec, ransac_tvec,
-                                                                                    loss_function);
+                                                                                    loss_function, options.verbose);
 
   const auto BAIWL_reprojection_error = assignments::reprojection_error(object_ransac_inliers, image_ransac_inliers,
                                                                         rvec_inliers_with_loss, tvec_inliers_with_loss,

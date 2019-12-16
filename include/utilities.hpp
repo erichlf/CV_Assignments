@@ -413,6 +413,9 @@ fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
   return {best_rvec, best_tvec, best_inlier_index, best_outlier_index, iter};
 }
 
+namespace
+{
+
 /*
  * \brief cost functor which only allows the rotation and translation vector to vary
  */
@@ -458,6 +461,33 @@ struct ReprojectionCost
   const cv::Point2d* image_point_;
 };
 
+class LoggingCallback : public ceres::IterationCallback
+{
+ public:
+  explicit LoggingCallback(bool log_to_stdout) :
+      log_to_stdout_(log_to_stdout) {}
+
+  ~LoggingCallback() {}
+
+  ceres::CallbackReturnType operator()(const ceres::IterationSummary& summary) override
+  {
+    if (log_to_stdout_)
+    {
+      if (summary.iteration == 0)
+        std::cout << "Iteration\tcost" << std::endl;
+
+      std::cout << summary.iteration << "\t" << summary.cost << std::endl;
+    }
+
+    return ceres::SOLVER_CONTINUE;
+  }
+
+ private:
+  bool log_to_stdout_ = false;
+};
+
+}  // namespace anonymous
+
 std::tuple<cv::Vec3d, cv::Vec3d> bundle_adjust(const std::vector<cv::Point3d>& object_points,
                                                const std::vector<cv::Point2d>& image_points,
                                                const cv::Matx33d& camera_matrix,
@@ -478,13 +508,17 @@ std::tuple<cv::Vec3d, cv::Vec3d> bundle_adjust(const std::vector<cv::Point3d>& o
 
   ceres::Solver::Options options;
   options.linear_solver_type = ceres::DENSE_SCHUR;
-  options.minimizer_progress_to_stdout = print_summary;
+  // options.minimizer_progress_to_stdout = print_summary;
+  options.update_state_every_iteration = print_summary;
+
+  LoggingCallback logging_callback(print_summary);
+  options.callbacks.push_back(&logging_callback);
 
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
 
-  if (print_summary)
-    std::cout << summary.FullReport() << std::endl;
+  // if (print_summary)
+  //    std::cout << summary.FullReport() << std::endl;
 
   return {{rvec[0], rvec[1], rvec[2]}, {tvec[0], tvec[1], tvec[2]}};
 }

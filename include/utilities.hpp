@@ -277,8 +277,15 @@ double reprojection_error(const std::vector<cv::Point3d>& object_points,
   // cv::fisheye::projectPoints(object_points, rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
   project_points(object_points, rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
 
-  double error = cv::norm(cv::Mat_<cv::Point2d>(image_points) - cv::Mat_<cv::Point2d>(projected_image_points),
-                          cv::NORM_L2SQR);
+  double error = 0;
+  for (int i = 0; i < object_points.size(); ++i)
+  {
+    const auto u_diff = image_points[i].x - projected_image_points[i].x;
+    const auto v_diff = image_points[i].y - projected_image_points[i].y;
+    error += sqrt(u_diff * u_diff + v_diff * v_diff);
+  }
+
+  error /= image_points.size();
 
   return error;
 }
@@ -372,7 +379,7 @@ std::tuple<cv::Vec3d, cv::Vec3d, std::vector<int>, std::vector<int>, int>
 fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
                        const std::vector<cv::Point2d> image_points,
                        const cv::Matx33d& camera_matrix, const cv::Matx<double, 1, 4>& fisheye_model,
-                       const double threshold=0.5, const double confidence=0.99, const int max_iters=100,
+                       const double threshold=8, const double confidence=0.99, const int max_iters=100,
                        const int num_model_points=4)
 {
   std::vector<int> best_inlier_index;

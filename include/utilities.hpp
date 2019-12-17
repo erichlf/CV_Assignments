@@ -277,11 +277,8 @@ double reprojection_error(const std::vector<cv::Point3d>& object_points,
   // cv::fisheye::projectPoints(object_points, rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
   project_points(object_points, rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
 
-  double error = 0;
-  for (int i = 0; i < object_points.size(); ++i)
-    error += cv::norm(cv::Mat(image_points[i]), cv::Mat(projected_image_points[i]), CV_L2);
-
-  error /= image_points.size();
+  double error = cv::norm(cv::Mat_<cv::Point2d>(image_points) - cv::Mat_<cv::Point2d>(projected_image_points),
+                          cv::NORM_L2SQR);
 
   return error;
 }
@@ -375,13 +372,14 @@ std::tuple<cv::Vec3d, cv::Vec3d, std::vector<int>, std::vector<int>, int>
 fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
                        const std::vector<cv::Point2d> image_points,
                        const cv::Matx33d& camera_matrix, const cv::Matx<double, 1, 4>& fisheye_model,
-                       const double threshold=1, const double confidence=0.99, const int max_iters=100,
-                       const double ratio=0.25, const int num_model_points=4)
+                       const double threshold=8, const double confidence=0.99, const int max_iters=100,
+                       const int num_model_points=4)
 {
   std::vector<int> best_inlier_index;
   std::vector<int> best_outlier_index;
   cv::Vec3d best_rvec, best_tvec;
   int num_iters = ransac_update_num_iters_(confidence, 0.45, max_iters, num_model_points);
+  num_iters = std::max(num_iters, 3);
 
   int iter;
   for(iter = 0; iter < num_iters; iter++)
@@ -397,9 +395,9 @@ fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
     std::tie(inlier_index, outlier_index) = get_liers_index_(object_points, image_points, subset_indices, rvec, tvec,
                                                              camera_matrix, fisheye_model, threshold);
 
-    if(inlier_index.size() - subset_indices.size() >= ratio * object_points.size())
+    if(inlier_index.size() > std::max(static_cast<int>(best_inlier_index.size()), num_model_points - 1))
     {
-      double outlier_ratio = (double)outlier_index.size() / (double)object_points.size();
+      double outlier_ratio = static_cast<double>(outlier_index.size()) / static_cast<double>(object_points.size());
       num_iters = ransac_update_num_iters_(confidence, outlier_ratio, num_iters, num_model_points);
 
       best_inlier_index = inlier_index;
@@ -534,7 +532,7 @@ std::tuple<cv::Vec3d, cv::Vec3d> bundle_adjust(const std::vector<cv::Point3d>& o
   }
 
   ceres::Solver::Options options;
-  options.linear_solver_type = ceres::DENSE_SCHUR;
+  options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY; // DENSE_SCHUR;
   options.minimizer_progress_to_stdout = print_summary;
   // options.update_state_every_iteration = print_summary;
 

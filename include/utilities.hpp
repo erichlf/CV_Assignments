@@ -1,5 +1,6 @@
 #include <opencv2/opencv.hpp>
 #include <ceres/ceres.h>
+#include <ceres/rotation.h>
 #include <jsoncpp/json/json.h>
 
 #include <vector>
@@ -433,13 +434,39 @@ struct ReprojectionCost
   { }
 
   template <typename T>
-  bool operator()(const T* const rvec_, const T* const tvec_, T* reprojection_error) const
+  bool operator()(const T* const rvec, const T* const tvec, T* reprojection_error) const
   {
-    cv::Vec3d rvec((double)rvec_[0], (double)rvec_[1], (double)rvec_[2]);
-    cv::Vec3d tvec((double)tvec_[0], (double)tvec_[1], (double)tvec_[2]);
+    T old_point[3] = {static_cast<T>(object_point_->x),
+                      static_cast<T>(object_point_->y),
+                      static_cast<T>(object_point_->z)};
+    T point[3];
+    ceres::AngleAxisRotatePoint(rvec, old_point, point);
+    point[0] += tvec[0]; point[1] += tvec[1]; point[2] += tvec[2];
 
-    *reprojection_error =  assignments::reprojection_error({*object_point_}, {*image_point_}, rvec, tvec,
-                                                           *camera_matrix_, *dist_coeffs_);
+    const T k1 = static_cast<T>((*dist_coeffs_)(0, 0));
+    const T k2 = static_cast<T>((*dist_coeffs_)(0, 1));
+    const T k3 = static_cast<T>((*dist_coeffs_)(0, 2));
+    const T k4 = static_cast<T>((*dist_coeffs_)(0, 3));
+
+    const auto xp = point[0] / point[2];
+    const auto yp = point[1] / point[2];
+
+    const auto r = static_cast<T>(sqrt(xp * xp + yp * yp));
+    const auto theta = static_cast<T>(atan(r));
+
+    const T theta_r = (r != static_cast<T>(0)) ?
+                      theta * (static_cast<T>(1) + k1 * theta * theta + k2 * pow(theta, 4) + k3 * pow(theta, 6) + k4 * pow(theta, 8)) / r
+                                               : static_cast<T>(0);
+
+    const T xpp = theta_r * xp;
+    const T ypp = theta_r * yp;
+
+    const auto u = xpp * static_cast<T>((*camera_matrix_)(0, 0)) + static_cast<T>((*camera_matrix_)(0, 2));
+    const auto v = ypp * static_cast<T>((*camera_matrix_)(1, 1)) + static_cast<T>((*camera_matrix_)(1, 2));
+
+    const T u_diff = u - static_cast<T>(image_point_->x);
+    const T v_diff = v - static_cast<T>(image_point_->y);
+    *reprojection_error = sqrt(u_diff * u_diff + v_diff * v_diff);
 
     return true;
   }
@@ -450,7 +477,7 @@ struct ReprojectionCost
                                      const cv::Point2d* image_point)
   {
     // each residual block returns a single number (1),takes a rotation vector (3), and a translation vector (3)
-    return (new ceres::NumericDiffCostFunction<ReprojectionCost, ceres::CENTRAL, 1, 3, 3>(
+    return (new ceres::AutoDiffCostFunction<ReprojectionCost, 1, 3, 3>(
         new ReprojectionCost(camera_matrix, dist_coeffs, object_point, image_point)));
   }
 
@@ -508,17 +535,17 @@ std::tuple<cv::Vec3d, cv::Vec3d> bundle_adjust(const std::vector<cv::Point3d>& o
 
   ceres::Solver::Options options;
   options.linear_solver_type = ceres::DENSE_SCHUR;
-  // options.minimizer_progress_to_stdout = print_summary;
-  options.update_state_every_iteration = print_summary;
+  options.minimizer_progress_to_stdout = print_summary;
+  // options.update_state_every_iteration = print_summary;
 
-  LoggingCallback logging_callback(print_summary);
-  options.callbacks.push_back(&logging_callback);
+  // LoggingCallback logging_callback(print_summary);
+  // options.callbacks.push_back(&logging_callback);
 
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
 
-  // if (print_summary)
-  //    std::cout << summary.FullReport() << std::endl;
+  if (print_summary)
+    std::cout << summary.FullReport() << std::endl;
 
   return {{rvec[0], rvec[1], rvec[2]}, {tvec[0], tvec[1], tvec[2]}};
 }

@@ -469,9 +469,8 @@ struct ReprojectionCost
     const auto u = xpp * static_cast<T>((*camera_matrix_)(0, 0)) + static_cast<T>((*camera_matrix_)(0, 2));
     const auto v = ypp * static_cast<T>((*camera_matrix_)(1, 1)) + static_cast<T>((*camera_matrix_)(1, 2));
 
-    const T u_diff = u - static_cast<T>(image_point_->x);
-    const T v_diff = v - static_cast<T>(image_point_->y);
-    *reprojection_error = sqrt(u_diff * u_diff + v_diff * v_diff);
+    reprojection_error[0] = u - static_cast<T>(image_point_->x);
+    reprojection_error[1] = v - static_cast<T>(image_point_->y);
 
     return true;
   }
@@ -482,7 +481,7 @@ struct ReprojectionCost
                                      const cv::Point2d* image_point)
   {
     // each residual block returns a single number (1),takes a rotation vector (3), and a translation vector (3)
-    return (new ceres::AutoDiffCostFunction<ReprojectionCost, 1, 3, 3>(
+    return (new ceres::AutoDiffCostFunction<ReprojectionCost, 2, 3, 3>(
         new ReprojectionCost(camera_matrix, dist_coeffs, object_point, image_point)));
   }
 

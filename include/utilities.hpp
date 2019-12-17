@@ -372,7 +372,7 @@ std::tuple<cv::Vec3d, cv::Vec3d, std::vector<int>, std::vector<int>, int>
 fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
                        const std::vector<cv::Point2d> image_points,
                        const cv::Matx33d& camera_matrix, const cv::Matx<double, 1, 4>& fisheye_model,
-                       const double threshold=8, const double confidence=0.99, const int max_iters=100,
+                       const double threshold=0.5, const double confidence=0.99, const int max_iters=100,
                        const int num_model_points=4)
 {
   std::vector<int> best_inlier_index;

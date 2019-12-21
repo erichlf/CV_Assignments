@@ -72,6 +72,7 @@ target_link_libraries(camera_pose_ransac
                       PRIVATE
                           cv_assignments
                       )
+
 add_executable(ba_extrinsics
                ba_extrinsics.cpp
                )

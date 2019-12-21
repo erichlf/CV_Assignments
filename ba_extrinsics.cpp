@@ -119,17 +119,23 @@ int main(int argc, char** argv)
 
   ceres::LossFunction* loss_function = NULL;
 
+  cv::Matx33d camera_matrix_full_no_loss;
+  cv::Matx<double, 1, 4> fisheye_model_full_no_loss;
   cv::Vec3d rvec_full_no_loss;
   cv::Vec3d tvec_full_no_loss;
 
-  std::tie(rvec_full_no_loss, tvec_full_no_loss) = assignments::bundle_adjust(object_points, image_points,
+  std::tie(camera_matrix_full_no_loss, fisheye_model_full_no_loss,
+           rvec_full_no_loss, tvec_full_no_loss) = assignments::bundle_adjust(object_points, image_points,
                                                                               camera_matrix, fisheye_model,
                                                                               ransac_rvec, ransac_tvec,
-                                                                              loss_function, options.verbose);
+                                                                              loss_function,
+                                                                              {false, false, true, true},
+                                                                              options.verbose);
 
   const auto BAFNL_reprojection_error = assignments::reprojection_error(object_points, image_points,
                                                                         rvec_full_no_loss, tvec_full_no_loss,
-                                                                        camera_matrix, fisheye_model);
+                                                                        camera_matrix_full_no_loss,
+                                                                        fisheye_model_full_no_loss);
 
   const auto BAFNL_objects_from_camera = cv::Affine3d(rvec_full_no_loss, tvec_full_no_loss).inv();
   assignments::print_result(BAFNL_objects_from_camera, BAFNL_reprojection_error);
@@ -138,18 +144,25 @@ int main(int argc, char** argv)
   "*********************************** Bundle Adjustment with Inliers Only ********************************************"
             << std::endl;
 
+  cv::Matx33d camera_matrix_inliers_no_loss;
+  cv::Matx<double, 1, 4> fisheye_model_inliers_no_loss;
   cv::Vec3d rvec_inliers_no_loss;
   cv::Vec3d tvec_inliers_no_loss;
 
-  std::tie(rvec_inliers_no_loss, tvec_inliers_no_loss) = assignments::bundle_adjust(object_ransac_inliers,
+  std::tie(camera_matrix_inliers_no_loss, fisheye_model_inliers_no_loss,
+           rvec_inliers_no_loss, tvec_inliers_no_loss) = assignments::bundle_adjust(object_ransac_inliers,
                                                                                     image_ransac_inliers,
-                                                                                    camera_matrix, fisheye_model,
+                                                                                    camera_matrix,
+                                                                                    fisheye_model,
                                                                                     ransac_rvec, ransac_tvec,
-                                                                                    loss_function, options.verbose);
+                                                                                    loss_function,
+                                                                                    {false, false, true, true},
+                                                                                    options.verbose);
 
   const auto BAINL_reprojection_error = assignments::reprojection_error(object_ransac_inliers, image_ransac_inliers,
                                                                         rvec_inliers_no_loss, tvec_inliers_no_loss,
-                                                                        camera_matrix, fisheye_model);
+                                                                        camera_matrix_inliers_no_loss,
+                                                                        fisheye_model_inliers_no_loss);
 
   const auto BAINL_objects_from_camera = cv::Affine3d(rvec_inliers_no_loss, tvec_inliers_no_loss).inv();
   assignments::print_result(BAINL_objects_from_camera, BAINL_reprojection_error);
@@ -160,17 +173,25 @@ int main(int argc, char** argv)
 
   loss_function = new ceres::HuberLoss(0.1);  // set our loss function
 
+  cv::Matx33d camera_matrix_full_with_loss;
+  cv::Matx<double, 1, 4> fisheye_model_full_with_loss;
   cv::Vec3d rvec_full_with_loss;
   cv::Vec3d tvec_full_with_loss;
 
-  std::tie(rvec_full_with_loss, tvec_full_with_loss) = assignments::bundle_adjust(object_points, image_points,
-                                                                                  camera_matrix, fisheye_model,
+  std::tie(camera_matrix_full_with_loss, fisheye_model_full_with_loss,
+           rvec_full_with_loss, tvec_full_with_loss) = assignments::bundle_adjust(object_points,
+                                                                                  image_points,
+                                                                                  camera_matrix,
+                                                                                  fisheye_model,
                                                                                   ransac_rvec, ransac_tvec,
-                                                                                  loss_function, options.verbose);
+                                                                                  loss_function,
+                                                                                  {false, false, true, true},
+                                                                                  options.verbose);
 
   const auto BAFWL_reprojection_error = assignments::reprojection_error(object_points, image_points,
                                                                         rvec_full_with_loss, tvec_full_with_loss,
-                                                                        camera_matrix, fisheye_model);
+                                                                        camera_matrix_full_with_loss,
+                                                                        fisheye_model_full_with_loss);
 
   const auto BAFWL_objects_from_camera = cv::Affine3d(rvec_full_with_loss, tvec_full_with_loss).inv();
   assignments::print_result(BAFWL_objects_from_camera, BAFWL_reprojection_error);
@@ -180,18 +201,24 @@ int main(int argc, char** argv)
             << std::endl;
 
   loss_function = new ceres::HuberLoss(0.1);  // reset loss function
+  cv::Matx33d camera_matrix_inliers_with_loss;
+  cv::Matx<double, 1, 4> fisheye_model_inliers_with_loss;
   cv::Vec3d rvec_inliers_with_loss;
   cv::Vec3d tvec_inliers_with_loss;
 
-  std::tie(rvec_inliers_with_loss, tvec_inliers_with_loss) = assignments::bundle_adjust(object_ransac_inliers,
+  std::tie(camera_matrix_inliers_with_loss, fisheye_model_inliers_with_loss,
+           rvec_inliers_with_loss, tvec_inliers_with_loss) = assignments::bundle_adjust(object_ransac_inliers,
                                                                                         image_ransac_inliers,
                                                                                         camera_matrix, fisheye_model,
                                                                                         ransac_rvec, ransac_tvec,
-                                                                                        loss_function, options.verbose);
+                                                                                        loss_function,
+                                                                                        {false, false, true, true},
+                                                                                        options.verbose);
 
   const auto BAIWL_reprojection_error = assignments::reprojection_error(object_ransac_inliers, image_ransac_inliers,
                                                                         rvec_inliers_with_loss, tvec_inliers_with_loss,
-                                                                        camera_matrix, fisheye_model);
+                                                                        camera_matrix_inliers_with_loss,
+                                                                        fisheye_model_inliers_with_loss);
 
   const auto BAIWL_objects_from_camera = cv::Affine3d(rvec_inliers_with_loss, tvec_inliers_with_loss).inv();
   assignments::print_result(BAIWL_objects_from_camera, BAIWL_reprojection_error);

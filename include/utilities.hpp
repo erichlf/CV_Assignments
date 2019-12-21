@@ -422,42 +422,65 @@ fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
 namespace
 {
 
+enum Intrinsics
+{
+  fx = 0,
+  fy = 1,
+  cx = 2,
+  cy = 3
+};
+
+enum DistCoeffs
+{
+  k1 = 0,
+  k2 = 1,
+  k3 = 2,
+  k4 = 3
+};
+
+enum Coords
+{
+  x = 0,
+  y = 1,
+  z = 2
+};
+
 /*
- * \brief cost functor which only allows the rotation and translation vector to vary
+ * \brief cost functor which only allows for all parameters to vary
  */
 struct ReprojectionCost
 {
  public:
-  ReprojectionCost(const cv::Matx33d* camera_matrix,
-                   const cv::Matx<double, 1, 4>* dist_coeffs,
-                   const cv::Point3d* object_point,
+  ReprojectionCost(const cv::Point3d* object_point,
                    const cv::Point2d* image_point) :
-      camera_matrix_(camera_matrix),
-      dist_coeffs_(dist_coeffs),
-      image_point_(image_point),
-      object_point_(object_point)
+      mObjectPoint(object_point),
+      mImagePoint(image_point)
   { }
 
   template <typename T>
-  bool operator()(const T* const rvec, const T* const tvec, T* reprojection_error) const
+  bool operator()(const T* const camera_matrix, const T* const dist_coeffs,
+                  const T* const rvec, const T* const tvec,
+                  T* reprojection_error) const
   {
-    T old_point[3] = {static_cast<T>(object_point_->x),
-                      static_cast<T>(object_point_->y),
-                      static_cast<T>(object_point_->z)};
+    T old_point[3] = {static_cast<T>(mObjectPoint->x),
+                      static_cast<T>(mObjectPoint->y),
+                      static_cast<T>(mObjectPoint->z)};
     T point[3];
     ceres::AngleAxisRotatePoint(rvec, old_point, point);
-    point[0] += tvec[0]; point[1] += tvec[1]; point[2] += tvec[2];
+    point[0] += tvec[Coords::x];
+    point[1] += tvec[Coords::y];
+    point[2] += tvec[Coords::z];
 
-    const T k1 = static_cast<T>((*dist_coeffs_)(0, 0));
-    const T k2 = static_cast<T>((*dist_coeffs_)(0, 1));
-    const T k3 = static_cast<T>((*dist_coeffs_)(0, 2));
-    const T k4 = static_cast<T>((*dist_coeffs_)(0, 3));
+    const T k1 = dist_coeffs[DistCoeffs::k1];
+    const T k2 = dist_coeffs[DistCoeffs::k2];
+    const T k3 = dist_coeffs[DistCoeffs::k3];
+    const T k4 = dist_coeffs[DistCoeffs::k4];
 
-    const auto xp = point[0] / point[2];
-    const auto yp = point[1] / point[2];
+    const auto xp = point[Coords::x] / point[Coords::z];
+    const auto yp = point[Coords::y] / point[Coords::z];
 
-    const auto r = static_cast<T>(sqrt(xp * xp + yp * yp));
-    const auto theta = static_cast<T>(atan(r));
+    const auto r = sqrt(xp * xp + yp * yp);
+    const auto theta = atan(r);
 
     const T theta_r = (r != static_cast<T>(0)) ?
                       theta * (static_cast<T>(1) + k1 * theta * theta + k2 * pow(theta, 4) + k3 * pow(theta, 6) + k4 * pow(theta, 8)) / r
@@ -466,30 +489,30 @@ struct ReprojectionCost
     const T xpp = theta_r * xp;
     const T ypp = theta_r * yp;
 
-    const auto u = xpp * static_cast<T>((*camera_matrix_)(0, 0)) + static_cast<T>((*camera_matrix_)(0, 2));
-    const auto v = ypp * static_cast<T>((*camera_matrix_)(1, 1)) + static_cast<T>((*camera_matrix_)(1, 2));
+    const T fx = camera_matrix[Intrinsics::fx];
+    const T fy = camera_matrix[Intrinsics::fy];
+    const T cx = camera_matrix[Intrinsics::cx];
+    const T cy = camera_matrix[Intrinsics::cy];
 
-    reprojection_error[0] = u - static_cast<T>(image_point_->x);
-    reprojection_error[1] = v - static_cast<T>(image_point_->y);
+    const T u = xpp * fx + cx;
+    const T v = ypp * fy + cy;
+
+    reprojection_error[Coords::x] = u - static_cast<T>(mImagePoint->x);
+    reprojection_error[Coords::y] = v - static_cast<T>(mImagePoint->y);
 
     return true;
   }
 
-  static ceres::CostFunction* Create(const cv::Matx33d* camera_matrix,
-                                     const cv::Matx<double, 1, 4>* dist_coeffs,
-                                     const cv::Point3d* object_point,
+  static ceres::CostFunction* Create(const cv::Point3d* object_point,
                                      const cv::Point2d* image_point)
   {
     // each residual block returns a single number (1),takes a rotation vector (3), and a translation vector (3)
-    return (new ceres::AutoDiffCostFunction<ReprojectionCost, 2, 3, 3>(
-        new ReprojectionCost(camera_matrix, dist_coeffs, object_point, image_point)));
+    return (new ceres::AutoDiffCostFunction<ReprojectionCost, 2, 4, 4, 3, 3>(new ReprojectionCost(object_point, image_point)));
   }
 
  private:
-  const cv::Matx33d* camera_matrix_;
-  const cv::Matx<double, 1, 4>* dist_coeffs_;
-  const cv::Point3d* object_point_;
-  const cv::Point2d* image_point_;
+  const cv::Point3d* mObjectPoint;
+  const cv::Point2d* mImagePoint;
 };
 
 class LoggingCallback : public ceres::IterationCallback
@@ -519,28 +542,46 @@ class LoggingCallback : public ceres::IterationCallback
 
 }  // namespace anonymous
 
-std::tuple<cv::Vec3d, cv::Vec3d> bundle_adjust(const std::vector<cv::Point3d>& object_points,
-                                               const std::vector<cv::Point2d>& image_points,
-                                               const cv::Matx33d& camera_matrix,
-                                               const cv::Matx<double, 1, 4>& fisheye_model,
-                                               const cv::Vec3d& rvec_, const cv::Vec3d& tvec_,
-                                               ceres::LossFunction* loss_function, bool print_summary=false)
+std::tuple<cv::Matx33d, cv::Matx<double, 1, 4>, cv::Vec3d, cv::Vec3d>
+bundle_adjust(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d>& image_points,
+              const cv::Matx33d& camera_matrix_, const cv::Matx<double, 1, 4>& fisheye_model_,
+              const cv::Vec3d& rvec_, const cv::Vec3d& tvec_,
+              ceres::LossFunction* loss_function, std::array<bool, 4> vary, bool print_summary= false)
 {
-  double rvec[] = {rvec_[0], rvec_[1], rvec_[2]};
-  double tvec[] = {tvec_[0], tvec_[1], tvec_[2]};
+  double camera_matrix[] = {camera_matrix_(0, 0), camera_matrix_(1, 1), camera_matrix_(0, 2), camera_matrix_(1, 2)};
+  double fisheye_model[] = {fisheye_model_(0), fisheye_model_(1), fisheye_model_(2), fisheye_model_(3)};
+  double rvec[] = {rvec_(0), rvec_(1), rvec_(2)};
+  double tvec[] = {tvec_(0), tvec_(1), tvec_(2)};
 
   ceres::Problem problem;
 
   for (size_t i = 0; i < object_points.size(); ++i) {
-    ceres::CostFunction* cost_function = assignments::ReprojectionCost::Create(&camera_matrix, &fisheye_model,
-                                                                               &object_points[i], &image_points[i]);
-    problem.AddResidualBlock(cost_function, loss_function, rvec, tvec);
+    ceres::CostFunction* cost_function = assignments::ReprojectionCost::Create(&(object_points[i]),
+                                                                               &(image_points[i]));
+    problem.AddResidualBlock(cost_function, loss_function, camera_matrix, fisheye_model, rvec, tvec);
   }
 
+  if (!vary[0])
+    problem.SetParameterBlockConstant(camera_matrix);
+  if (!vary[1])
+    problem.SetParameterBlockConstant(fisheye_model);
+  if (!vary[2])
+    problem.SetParameterBlockConstant(rvec);
+  if (!vary[3])
+    problem.SetParameterBlockConstant(tvec);
+
+  problem.SetParameterLowerBound(camera_matrix, 0, 0);
+  problem.SetParameterLowerBound(camera_matrix, 1, 0);
+  problem.SetParameterLowerBound(camera_matrix, 2, 0);
+  problem.SetParameterLowerBound(camera_matrix, 3, 0);
+
   ceres::Solver::Options options;
-  options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY; // DENSE_SCHUR;
+  options.use_nonmonotonic_steps = true;
+  options.preconditioner_type = ceres::SCHUR_JACOBI;
+  options.linear_solver_type = ceres::ITERATIVE_SCHUR;
+  options.use_inner_iterations = true;
+  options.max_num_iterations = 100;
   options.minimizer_progress_to_stdout = print_summary;
-  // options.update_state_every_iteration = print_summary;
 
   // LoggingCallback logging_callback(print_summary);
   // options.callbacks.push_back(&logging_callback);
@@ -551,7 +592,14 @@ std::tuple<cv::Vec3d, cv::Vec3d> bundle_adjust(const std::vector<cv::Point3d>& o
   if (print_summary)
     std::cout << summary.FullReport() << std::endl;
 
-  return {{rvec[0], rvec[1], rvec[2]}, {tvec[0], tvec[1], tvec[2]}};
+  cv::Matx33d new_camera_matrix(camera_matrix[Intrinsics::fx], 0.0, camera_matrix[Intrinsics::cx],
+                                0.0, camera_matrix[Intrinsics::fy], camera_matrix[Intrinsics::cy],
+                                0.0, 0.0, 1.0);
+  cv::Matx<double, 1, 4> new_fisheye_model(fisheye_model[0], fisheye_model[1], fisheye_model[2], fisheye_model[3]);
+  cv::Vec3d new_rvec(rvec[0], rvec[1], rvec[2]);
+  cv::Vec3d new_tvec(tvec[0], tvec[1], tvec[2]);
+
+  return {new_camera_matrix, new_fisheye_model, new_rvec, new_tvec};
 }
 
 };  // namespace assignments

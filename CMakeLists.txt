@@ -72,14 +72,14 @@ target_link_libraries(camera_pose_ransac
                       PRIVATE
                           cv_assignments
                       )
-add_executable(bundle_adjustment
-               bundle_adjustment.cpp
+add_executable(ba_extrinsics
+               ba_extrinsics.cpp
                )
 
-set_target_properties(bundle_adjustment
+set_target_properties(ba_extrinsics
                       PROPERTIES CXX_STANDARD 17)
 
-target_link_libraries(bundle_adjustment
+target_link_libraries(ba_extrinsics
                       PRIVATE
                           cv_assignments
                       )

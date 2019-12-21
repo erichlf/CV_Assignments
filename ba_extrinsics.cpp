@@ -184,10 +184,10 @@ int main(int argc, char** argv)
   cv::Vec3d tvec_inliers_with_loss;
 
   std::tie(rvec_inliers_with_loss, tvec_inliers_with_loss) = assignments::bundle_adjust(object_ransac_inliers,
-                                                                                    image_ransac_inliers,
-                                                                                    camera_matrix, fisheye_model,
-                                                                                    ransac_rvec, ransac_tvec,
-                                                                                    loss_function, options.verbose);
+                                                                                        image_ransac_inliers,
+                                                                                        camera_matrix, fisheye_model,
+                                                                                        ransac_rvec, ransac_tvec,
+                                                                                        loss_function, options.verbose);
 
   const auto BAIWL_reprojection_error = assignments::reprojection_error(object_ransac_inliers, image_ransac_inliers,
                                                                         rvec_inliers_with_loss, tvec_inliers_with_loss,

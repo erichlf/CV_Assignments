@@ -546,7 +546,7 @@ std::tuple<cv::Matx33d, cv::Matx<double, 1, 4>, cv::Vec3d, cv::Vec3d>
 bundle_adjust(const std::vector<cv::Point3d>& object_points, const std::vector<cv::Point2d>& image_points,
               const cv::Matx33d& camera_matrix_, const cv::Matx<double, 1, 4>& fisheye_model_,
               const cv::Vec3d& rvec_, const cv::Vec3d& tvec_,
-              ceres::LossFunction* loss_function, std::array<bool, 4> vary, bool print_summary= false)
+              ceres::LossFunction* loss_function, std::array<bool, 4> vary, bool print_summary = false)
 {
   double camera_matrix[] = {camera_matrix_(0, 0), camera_matrix_(1, 1), camera_matrix_(0, 2), camera_matrix_(1, 2)};
   double fisheye_model[] = {fisheye_model_(0), fisheye_model_(1), fisheye_model_(2), fisheye_model_(3)};
@@ -556,8 +556,7 @@ bundle_adjust(const std::vector<cv::Point3d>& object_points, const std::vector<c
   ceres::Problem problem;
 
   for (size_t i = 0; i < object_points.size(); ++i) {
-    ceres::CostFunction* cost_function = assignments::ReprojectionCost::Create(&(object_points[i]),
-                                                                               &(image_points[i]));
+    ceres::CostFunction* cost_function = ReprojectionCost::Create(&(object_points[i]), &(image_points[i]));
     problem.AddResidualBlock(cost_function, loss_function, camera_matrix, fisheye_model, rvec, tvec);
   }
 
@@ -569,11 +568,6 @@ bundle_adjust(const std::vector<cv::Point3d>& object_points, const std::vector<c
     problem.SetParameterBlockConstant(rvec);
   if (!vary[3])
     problem.SetParameterBlockConstant(tvec);
-
-  problem.SetParameterLowerBound(camera_matrix, 0, 0);
-  problem.SetParameterLowerBound(camera_matrix, 1, 0);
-  problem.SetParameterLowerBound(camera_matrix, 2, 0);
-  problem.SetParameterLowerBound(camera_matrix, 3, 0);
 
   ceres::Solver::Options options;
   options.use_nonmonotonic_steps = true;

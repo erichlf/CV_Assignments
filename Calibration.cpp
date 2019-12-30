@@ -23,8 +23,12 @@ load_correspondence(const std::string& json_file)
   {
     std::vector<cv::Point3d> world_points;
     std::vector<cv::Point2d> image_points;
+    int corr = 0;
     for (const auto& correspondence : frame[std::to_string(frame_number)])
     {
+      if (corr % 10)
+        continue;
+
       world_points.push_back({correspondence["grid_point"][0].asDouble(),
                               correspondence["grid_point"][1].asDouble(),
                               correspondence["grid_point"][2].asDouble()});
@@ -57,16 +61,47 @@ Calibration::Calibration(const cv::Size& imageSize,
   mTVecs.resize(mFramedImagePoints.size());
 }
 
+inline cv::Vec6d Calibration::vij(const size_t i, const size_t j, const cv::Mat& H)
+{
+  return cv::Vec6d(H.at<double>(0, i) * H.at<double>(0, j),
+                   H.at<double>(0, i) * H.at<double>(1, j) + H.at<double>(1, i) * H.at<double>(0, j),
+                   H.at<double>(1, i) * H.at<double>(1, j),
+                   H.at<double>(2, i) * H.at<double>(0, j) + H.at<double>(0, i) * H.at<double>(2, j),
+                   H.at<double>(2, i) * H.at<double>(1, j) + H.at<double>(1, i) * H.at<double>(2, j),
+                   H.at<double>(2, i) * H.at<double>(2, j));
+}
+
 void Calibration::estimateIntrinsics()
 {
-  double cx = mCameraMatrix(0, 2);
-  double cy = mCameraMatrix(1, 2);
+  size_t numImages = mFramedImagePoints.size();
+  // size_t numSubImage = 35;
+  // size_t stride = numImages / numSubImage; // This code is extremely slow to run, when running on the 681300 points
+  // cv::Mat cvDistortionCoeffs = cv::Mat::zeros(1, 4, CV_64F);  // temp place holder so that calibrate can be used
+  // std::vector<cv::Vec3d> cvRVecs;
+  // std::vector<cv::Vec3d> cvTVecs;
 
-  const auto numImages = mFramedImagePoints.size();
+  // std::vector<std::vector<cv::Point3d>> subGrid;
+  // std::vector<std::vector<cv::Point2d>> subImage;
+  // for (size_t i = 0; i < numImages; i += stride)
+  // {
+  //   subGrid.push_back(mFramedGridPoints[i]);
+  //   subImage.push_back(mFramedImagePoints[i]);
+  // }
+  // cv::fisheye::calibrate(subGrid, subImage, mImageSize, mCameraMatrix, cvDistortionCoeffs, mRVecs, mTVecs,
+  //                        cv::fisheye::CALIB_RECOMPUTE_EXTRINSIC | cv::fisheye::CALIB_FIX_SKEW);
+  // std::cout << "OpenCV Estimates:" << std::endl;
+  // std::cout << "Intrinsics:" << std::endl << mCameraMatrix << std::endl;
+  // std::cout << "Distortion Coeffs: " << cvDistortionCoeffs << std::endl;
 
-  cv::Mat A(numImages * 2, 2, CV_64F);
-  cv::Mat b(numImages * 2, 1, CV_64F);
+  // mDistortionCoeffs(0) = cvDistortionCoeffs.at<double>(0, 0);
+  // mDistortionCoeffs(1) = cvDistortionCoeffs.at<double>(0, 1);
+  // mDistortionCoeffs(2) = cvDistortionCoeffs.at<double>(0, 2);
+  // mDistortionCoeffs(3) = cvDistortionCoeffs.at<double>(0, 3);
 
+  // return;
+  // Zhang's method of intrisic estimation.
+
+  cv::Mat V = cv::Mat::zeros(2 * numImages, 6, CV_64F);
   for (size_t frame = 0; frame < numImages; ++frame)
   {
     std::vector<cv::Point2d> reducedGridPoints;
@@ -75,65 +110,72 @@ void Calibration::estimateIntrinsics()
 
     cv::Mat homographyMatrix = cv::findHomography(reducedGridPoints, mFramedImagePoints[frame]);
 
-    homographyMatrix.at<double>(0, 0) -= homographyMatrix.at<double>(2, 0) * cx;
-    homographyMatrix.at<double>(0, 1) -= homographyMatrix.at<double>(2, 1) * cx;
-    homographyMatrix.at<double>(0, 2) -= homographyMatrix.at<double>(2, 2) * cx;
-    homographyMatrix.at<double>(1, 0) -= homographyMatrix.at<double>(2, 0) * cy;
-    homographyMatrix.at<double>(1, 1) -= homographyMatrix.at<double>(2, 1) * cy;
-    homographyMatrix.at<double>(1, 2) -= homographyMatrix.at<double>(2, 2) * cy;
+    const auto G1 = vij(0, 1, homographyMatrix);
+    const auto G2 = vij(0, 0, homographyMatrix) - vij(1, 1, homographyMatrix);
 
-    double h[3], v[3], d1[3], d2[3];
-    double n[4] = {0, 0, 0, 0};
+    V.at<double>(2 * frame, 0) = G1(0);
+    V.at<double>(2 * frame, 1) = G1(1);
+    V.at<double>(2 * frame, 2) = G1(2);
+    V.at<double>(2 * frame, 3) = G1(3);
+    V.at<double>(2 * frame, 4) = G1(4);
+    V.at<double>(2 * frame, 5) = G1(5);
 
-    for (int j = 0; j < 3; ++j)
-    {
-      double t0 = homographyMatrix.at<double>(j, 0);
-      double t1 = homographyMatrix.at<double>(j, 1);
-      h[j] = t0;
-      v[j] = t1;
-      d1[j] = (t0 + t1) * 0.5;
-      d2[j] = (t0 - t1) * 0.5;
-      n[0] += t0 * t0;
-      n[1] += t1 * t1;
-      n[2] += d1[j] * d1[j];
-      n[3] += d2[j] * d2[j];
-    }
-
-    n[0] = 1.0 / sqrt(n[0]); n[1] = 1.0 / sqrt(n[1]); n[2] = 1.0 / sqrt(n[2]); n[3] = 1.0 / sqrt(n[3]);
-
-    h[0] *= n[0]; h[1] *= n[0]; h[2] *= n[0];
-    v[0] *= n[1]; v[1] *= n[1]; v[2] *= n[1];
-    d1[0] *= n[2]; d1[1] *= n[2]; d1[2] *= n[2];
-    d2[0] *= n[3]; d2[1] *= n[3]; d2[2] *= n[3];
-
-    A.at<double>(frame * 2, 0) = h[0] * v[0];
-    A.at<double>(frame * 2, 1) = h[1] * v[1];
-    A.at<double>(frame * 2 + 1, 0) = d1[0] * d2[0];
-    A.at<double>(frame * 2 + 1, 1) = d1[1] * d2[1];
-    b.at<double>(frame * 2, 0) = -h[2] * v[2];
-    b.at<double>(frame * 2 + 1, 0) = -d1[2] * d2[2];
+    V.at<double>(2 * frame + 1, 0) = G2(0);
+    V.at<double>(2 * frame + 1, 1) = G2(1);
+    V.at<double>(2 * frame + 1, 2) = G2(2);
+    V.at<double>(2 * frame + 1, 3) = G2(3);
+    V.at<double>(2 * frame + 1, 4) = G2(4);
+    V.at<double>(2 * frame + 1, 5) = G2(5);
   }
 
-  cv::Vec2d f;
-  cv::solve(A, b, f, cv::DECOMP_NORMAL | cv::DECOMP_LU);
+  cv::Mat U, S, VT;
+  cv::SVD::compute(V, S, U, VT);
 
-  mCameraMatrix(0, 0) = sqrt(fabs(1.0 / f(0)));  // fx
-  mCameraMatrix(1, 1) = sqrt(fabs(1.0 / f(1)));  // fy
+  double minVal, maxVal;
+  int minLoc, maxLoc;
+
+  cv::minMaxIdx(S, &minVal, &maxVal, &minLoc, &maxLoc);
+
+  cv::Vec6d b(VT.at<double>(minLoc,0),
+              VT.at<double>(minLoc,1),
+              VT.at<double>(minLoc,2),
+              VT.at<double>(minLoc,3),
+              VT.at<double>(minLoc,4),
+              VT.at<double>(minLoc,5));
+
+  double w = b(0) * b(2) * b(5) - b(1) * b(1) * b(5) + 2 * b(1) * b(3) * b(4) - b(2) * b(3) * b(3);
+  double d = b(0) * b(2) - b(1) * b(1);
+
+  double fx = sqrt(w / (d * b(0)));
+  double fy = sqrt(w / (d * d) * b(0));
+  double cx = (b(1) * b(4) - b(2) * b(3)) / d;
+  double cy = (b(1) * b(3) - b(0) * b(4))/ d;
+
+  mCameraMatrix(0, 0) = fx;
+  mCameraMatrix(0, 2) = cx;
+  mCameraMatrix(1, 1) = fy;
+  mCameraMatrix(1, 2) = cy;
+
+  std::cout << "Initial Intrinsics Guess:" << std::endl << mCameraMatrix << std::endl;
 }
 
 void Calibration::estimateExtrinsics()
 {
   for (size_t frame = 0; frame < mFramedGridPoints.size(); ++frame)
   {
-    cv::solvePnPRansac(mFramedGridPoints[frame], mFramedImagePoints[frame], mCameraMatrix, cv::noArray(),
-                       mRVecs[frame], mTVecs[frame]);
+    std::vector<int> inlierIdx;
+    std::vector<int> outlierIdx;
+    size_t iter;
+    std::tie(mRVecs[frame], mTVecs[frame], inlierIdx, outlierIdx, iter) =
+        fisheye_solvePnPRansac(mFramedGridPoints[frame], mFramedImagePoints[frame], mCameraMatrix, mDistortionCoeffs);
   }
 }
 
 void Calibration::optimizeIntrinsics()
 {
   double cameraMatrix[] = {mCameraMatrix(0, 0), mCameraMatrix(1, 1), mCameraMatrix(0, 2), mCameraMatrix(1, 2)};
-  double distortionCoeffs[] = {0, 0, 0, 0};
+  double distortionCoeffs[] = {mDistortionCoeffs(0, 0), mDistortionCoeffs(0, 1),
+                               mDistortionCoeffs(0, 2), mDistortionCoeffs(0, 3)};
   std::vector<double[3]> rvecs(mRVecs.size());
   std::vector<double[3]> tvecs(mTVecs.size());
   for (size_t frame = 0; frame < mRVecs.size(); ++frame)
@@ -159,6 +201,12 @@ void Calibration::optimizeIntrinsics()
 
   ceres::Solver::Options options;
   options.minimizer_progress_to_stdout = mVerbose;
+  // options.use_nonmonotonic_steps = true;
+  // options.preconditioner_type = ceres::SCHUR_JACOBI;
+  // options.linear_solver_type = ceres::ITERATIVE_SCHUR;
+  // options.use_inner_iterations = true;
+  // options.max_num_iterations = 20;
+  options.minimizer_progress_to_stdout = mVerbose;
 
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
@@ -169,10 +217,10 @@ void Calibration::optimizeIntrinsics()
   }
 
   // update all our data
-  mDistortionCoeffs(0) = distortionCoeffs[0];
-  mDistortionCoeffs(1) = distortionCoeffs[1];
-  mDistortionCoeffs(2) = distortionCoeffs[2];
-  mDistortionCoeffs(3) = distortionCoeffs[3];
+  mDistortionCoeffs(DistCoeffs::k1) = distortionCoeffs[DistCoeffs::k1];
+  mDistortionCoeffs(DistCoeffs::k2) = distortionCoeffs[DistCoeffs::k2];
+  mDistortionCoeffs(DistCoeffs::k3) = distortionCoeffs[DistCoeffs::k3];
+  mDistortionCoeffs(DistCoeffs::k4) = distortionCoeffs[DistCoeffs::k4];
 
   mCameraMatrix(0, 0) = cameraMatrix[0];
   mCameraMatrix(1, 1) = cameraMatrix[1];
@@ -181,12 +229,8 @@ void Calibration::optimizeIntrinsics()
 
   for (size_t frame = 0; frame < mFramedImagePoints.size(); ++frame)
   {
-    mRVecs[frame](0) = rvecs[frame][0];
-    mRVecs[frame](1) = rvecs[frame][1];
-    mRVecs[frame](2) = rvecs[frame][2];
-    mTVecs[frame](0) = tvecs[frame][0];
-    mTVecs[frame](1) = tvecs[frame][1];
-    mTVecs[frame](2) = tvecs[frame][2];
+    mRVecs[frame](0) = rvecs[frame][0]; mRVecs[frame](1) = rvecs[frame][1]; mRVecs[frame](2) = rvecs[frame][2];
+    mTVecs[frame](0) = tvecs[frame][0]; mTVecs[frame](1) = tvecs[frame][1]; mTVecs[frame](2) = tvecs[frame][2];
   }
 }
 

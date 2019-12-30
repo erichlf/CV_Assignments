@@ -81,8 +81,10 @@ class CalibrationCost
     const auto r = sqrt(xp * xp + yp * yp);
     const auto theta = atan(r);
 
-    const T theta_r = (r != static_cast<T>(0)) ?
-                      theta * (static_cast<T>(1) + k1 * theta * theta + k2 * pow(theta, 4) + k3 * pow(theta, 6) + k4 * pow(theta, 8)) / r
+    const T theta_r = (r != static_cast<T>(0)) ? theta * (static_cast<T>(1) + k1 * theta * theta
+                                                          + k2 * pow(theta, 4)
+                                                          + k3 * pow(theta, 6)
+                                                          + k4 * pow(theta, 8)) / r
                                                : static_cast<T>(0);
 
     const T xpp = theta_r * xp;
@@ -137,6 +139,8 @@ class Calibration
   std::tuple<double, double, double, double> errors() const;
 
  private:
+  inline cv::Vec6d vij(const size_t i, const size_t j, const cv::Mat& H);
+
   void estimateIntrinsics();
 
   void estimateExtrinsics();

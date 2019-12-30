@@ -482,8 +482,10 @@ struct ReprojectionCost
     const auto r = sqrt(xp * xp + yp * yp);
     const auto theta = atan(r);
 
-    const T theta_r = (r != static_cast<T>(0)) ?
-                      theta * (static_cast<T>(1) + k1 * theta * theta + k2 * pow(theta, 4) + k3 * pow(theta, 6) + k4 * pow(theta, 8)) / r
+    const T theta_r = (r != static_cast<T>(0)) ? theta * (static_cast<T>(1) + k1 * theta * theta
+                                                          + k2 * pow(theta, 4)
+                                                          + k3 * pow(theta, 6)
+                                                          + k4 * pow(theta, 8)) / r
                                                : static_cast<T>(0);
 
     const T xpp = theta_r * xp;
@@ -507,7 +509,8 @@ struct ReprojectionCost
                                      const cv::Point2d* image_point)
   {
     // each residual block returns a single number (1),takes a rotation vector (3), and a translation vector (3)
-    return (new ceres::AutoDiffCostFunction<ReprojectionCost, 2, 4, 4, 3, 3>(new ReprojectionCost(object_point, image_point)));
+    return (new ceres::AutoDiffCostFunction<ReprojectionCost, 2, 4, 4, 3, 3>(new ReprojectionCost(object_point,
+                                                                                                  image_point)));
   }
 
  private:

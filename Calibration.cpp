@@ -74,31 +74,28 @@ inline cv::Vec6d Calibration::vij(const size_t i, const size_t j, const cv::Mat&
 void Calibration::estimateIntrinsics()
 {
   size_t numImages = mFramedImagePoints.size();
-  // size_t numSubImage = 35;
-  // size_t stride = numImages / numSubImage; // This code is extremely slow to run, when running on the 681300 points
-  // cv::Mat cvDistortionCoeffs = cv::Mat::zeros(1, 4, CV_64F);  // temp place holder so that calibrate can be used
-  // std::vector<cv::Vec3d> cvRVecs;
-  // std::vector<cv::Vec3d> cvTVecs;
+  size_t numSubImage = 35;
+  size_t stride = numImages / numSubImage; // This code is extremely slow to run, when running on the 681300 points
+  cv::Mat cvDistortionCoeffs = cv::Mat::zeros(1, 4, CV_64F);  // temp place holder so that calibrate can be used
+  std::vector<cv::Vec3d> cvRVecs;
+  std::vector<cv::Vec3d> cvTVecs;
 
-  // std::vector<std::vector<cv::Point3d>> subGrid;
-  // std::vector<std::vector<cv::Point2d>> subImage;
-  // for (size_t i = 0; i < numImages; i += stride)
-  // {
-  //   subGrid.push_back(mFramedGridPoints[i]);
-  //   subImage.push_back(mFramedImagePoints[i]);
-  // }
-  // cv::fisheye::calibrate(subGrid, subImage, mImageSize, mCameraMatrix, cvDistortionCoeffs, mRVecs, mTVecs,
-  //                        cv::fisheye::CALIB_RECOMPUTE_EXTRINSIC | cv::fisheye::CALIB_FIX_SKEW);
-  // std::cout << "OpenCV Estimates:" << std::endl;
-  // std::cout << "Intrinsics:" << std::endl << mCameraMatrix << std::endl;
-  // std::cout << "Distortion Coeffs: " << cvDistortionCoeffs << std::endl;
+  std::vector<std::vector<cv::Point3d>> subGrid;
+  std::vector<std::vector<cv::Point2d>> subImage;
+  for (size_t i = 0; i < numImages; i += stride)
+  {
+    subGrid.push_back(mFramedGridPoints[i]);
+    subImage.push_back(mFramedImagePoints[i]);
+  }
+  cv::fisheye::calibrate(subGrid, subImage, mImageSize, mCameraMatrix, cvDistortionCoeffs, cv::noArray(), cv::noArray(),
+                         cv::fisheye::CALIB_RECOMPUTE_EXTRINSIC | cv::fisheye::CALIB_FIX_SKEW);
 
-  // mDistortionCoeffs(0) = cvDistortionCoeffs.at<double>(0, 0);
-  // mDistortionCoeffs(1) = cvDistortionCoeffs.at<double>(0, 1);
-  // mDistortionCoeffs(2) = cvDistortionCoeffs.at<double>(0, 2);
-  // mDistortionCoeffs(3) = cvDistortionCoeffs.at<double>(0, 3);
+  mDistortionCoeffs(0) = cvDistortionCoeffs.at<double>(0, 0);
+  mDistortionCoeffs(1) = cvDistortionCoeffs.at<double>(0, 1);
+  mDistortionCoeffs(2) = cvDistortionCoeffs.at<double>(0, 2);
+  mDistortionCoeffs(3) = cvDistortionCoeffs.at<double>(0, 3);
 
-  // return;
+  return;
   // Zhang's method of intrisic estimation.
 
   cv::Mat V = cv::Mat::zeros(2 * numImages, 6, CV_64F);
@@ -168,7 +165,28 @@ void Calibration::estimateExtrinsics()
     size_t iter;
     std::tie(mRVecs[frame], mTVecs[frame], inlierIdx, outlierIdx, iter) =
         fisheye_solvePnPRansac(mFramedGridPoints[frame], mFramedImagePoints[frame], mCameraMatrix, mDistortionCoeffs);
+
+    // std::vector<cv::Point2d> framedUndistortedPoints;
+    // cv::fisheye::undistortPoints(mFramedImagePoints[frame], framedUndistortedPoints, mCameraMatrix, mDistortionCoeffs,
+    //                              cv::noArray(), mCameraMatrix);
+    // cv::solvePnPRansac(mFramedGridPoints[frame], framedUndistortedPoints, mCameraMatrix, mDistortionCoeffs,
+    //                    mRVecs[frame], mTVecs[frame]);
   }
+  // const auto& [RMSE, meanError, minError, maxError] = errors(true);
+
+  // std::cout << "Intrinsics:" << std::endl << mCameraMatrix << std::endl;
+  // std::cout << "Distortion Coeffs: " << mDistortionCoeffs << std::endl;
+  // std::cout << "Root Mean Squared Error: " << RMSE << std::endl;
+  // std::cout << "Mean Error: " << meanError << std::endl;
+  // std::cout << "Minimum Error: " << minError << std::endl;
+  // std::cout << "Maximum Error: " << maxError << std::endl;
+
+  // // result errors
+  // mRMSError = 0;
+  // mMeanError = 0;
+  // mMaxError = std::numeric_limits<double>::min();
+  // mMinError = std::numeric_limits<double>::max();
+
 }
 
 void Calibration::optimizeIntrinsics()
@@ -178,34 +196,35 @@ void Calibration::optimizeIntrinsics()
                                mDistortionCoeffs(0, 2), mDistortionCoeffs(0, 3)};
   std::vector<double[3]> rvecs(mRVecs.size());
   std::vector<double[3]> tvecs(mTVecs.size());
-  for (size_t frame = 0; frame < mRVecs.size(); ++frame)
+
+  ceres::Problem problem;
+  ceres::LossFunction* lossFunction = new ceres::HuberLoss(0.1);
+
+  // create residuals for each observation
+  size_t numObservations = 0;
+  for (size_t frame = 0; frame < mFramedImagePoints.size(); ++frame)
   {
     rvecs[frame][0] = mRVecs[frame][0]; rvecs[frame][1] = mRVecs[frame][1]; rvecs[frame][2] = mRVecs[frame][2];
     tvecs[frame][0] = mTVecs[frame][0]; tvecs[frame][1] = mTVecs[frame][1]; tvecs[frame][2] = mTVecs[frame][2];
-  }
-
-  ceres::Problem problem;
-  ceres::LossFunction* lossFunction = new ceres::HuberLoss(1);
-
-  // create residuals for each observation
-  for (size_t frame = 0; frame < mFramedImagePoints.size(); ++frame)
-  {
     for (size_t j = 0; j < mFramedImagePoints[frame].size(); ++j)
     {
       ceres::CostFunction* costFunction = CalibrationCost::Create(&(mFramedGridPoints[frame][j]),
                                                                   &(mFramedImagePoints[frame][j]));
+
       problem.AddResidualBlock(costFunction, lossFunction, cameraMatrix, distortionCoeffs,
                                rvecs[frame], tvecs[frame]);
+      ++numObservations;
     }
   }
 
   ceres::Solver::Options options;
+  options.num_threads = 10;
   options.minimizer_progress_to_stdout = mVerbose;
   // options.use_nonmonotonic_steps = true;
   // options.preconditioner_type = ceres::SCHUR_JACOBI;
   // options.linear_solver_type = ceres::ITERATIVE_SCHUR;
   // options.use_inner_iterations = true;
-  // options.max_num_iterations = 20;
+  options.max_num_iterations = 100;
   options.minimizer_progress_to_stdout = mVerbose;
 
   ceres::Solver::Summary summary;
@@ -231,7 +250,31 @@ void Calibration::optimizeIntrinsics()
   {
     mRVecs[frame](0) = rvecs[frame][0]; mRVecs[frame](1) = rvecs[frame][1]; mRVecs[frame](2) = rvecs[frame][2];
     mTVecs[frame](0) = tvecs[frame][0]; mTVecs[frame](1) = tvecs[frame][1]; mTVecs[frame](2) = tvecs[frame][2];
+    for (size_t j = 0; j < mFramedImagePoints[frame].size(); ++j)
+    {
+      double residual[2];
+
+      double objectPoint[3] = {mFramedGridPoints[frame][j].x,
+                               mFramedGridPoints[frame][j].y,
+                               mFramedGridPoints[frame][j].z};
+      double imagePoint[2] = {mFramedImagePoints[frame][j].x,
+                              mFramedImagePoints[frame][j].y};
+
+      fisheyeReprojectionError(objectPoint, imagePoint, cameraMatrix, distortionCoeffs,
+                               rvecs[frame], tvecs[frame], residual);
+
+      double squaredError = residual[0] * residual[0] + residual[1] * residual[1];
+      double dist = sqrt(squaredError);
+
+      mRMSError += squaredError;
+      mMeanError += dist;
+      mMinError = std::min(dist, mMinError);
+      mMaxError = std::max(dist, mMaxError);
+    }
   }
+
+  mMeanError /= numObservations;
+  mRMSError = sqrt(mRMSError / numObservations);
 }
 
 void Calibration::calibrate()
@@ -240,43 +283,66 @@ void Calibration::calibrate()
   estimateIntrinsics();
   // estimate the position of the camera wrt to each frame
   estimateExtrinsics();
+
+  // std::cout << "Intrinsics:" << std::endl << mCameraMatrix << std::endl;
+  // std::cout << "Distortion Coeffs: " << mDistortionCoeffs << std::endl;
+  // std::cout << "Root Mean Squared Error: " << mRMSError << std::endl;
+  // std::cout << "Mean Error: " << mMeanError << std::endl;
+  // std::cout << "Minimum Error: " << mMinError << std::endl;
+  // std::cout << "Maximum Error: " << mMaxError << std::endl;
+
   // run ceres optimization to get closer camera extrinsics
   optimizeIntrinsics();
 }
 
-std::tuple<double, double, double, double> Calibration::errors() const
+std::tuple<double, double, double, double> Calibration::errors(bool recalculate/*=false*/)
 {
-  double minError = std::numeric_limits<double>::max();
-  double maxError = std::numeric_limits<double>::min();
-  double meanError = 0;
-  double rmsError = 0;
-
-  size_t numObservations = 0;
-  for (size_t frame = 0; frame < mFramedImagePoints.size(); ++frame)
+  if (recalculate)
   {
-    std::vector<cv::Point2d> estimatedPoints;
-    project_points(mFramedGridPoints[frame], mRVecs[frame], mTVecs[frame], mCameraMatrix, mDistortionCoeffs,
-                   estimatedPoints);
-    for (size_t i = 0; i < estimatedPoints.size(); ++i)
+    double cameraMatrix[4] = {mCameraMatrix(0, 0), mCameraMatrix(1, 1), mCameraMatrix(0, 2), mCameraMatrix(1, 2)};
+    double distortionCoeffs[4] = {mDistortionCoeffs(0), mDistortionCoeffs(1), mDistortionCoeffs(2), mDistortionCoeffs(3)};
+
+    mMinError = std::numeric_limits<double>::max();
+    mMaxError = std::numeric_limits<double>::min();
+    mMeanError = 0;
+    mRMSError = 0;
+
+    size_t numObservations = 0;
+    for (size_t frame = 0; frame < mFramedGridPoints.size(); ++frame)
     {
-      const auto diffX = estimatedPoints[i].x - mFramedImagePoints[frame][i].x;
-      const auto diffY = estimatedPoints[i].y - mFramedImagePoints[frame][i].y;
+      double rvec[3] = {mRVecs[frame][0], mRVecs[frame][1], mRVecs[frame][2]};
+      double tvec[3] = {mTVecs[frame][0], mTVecs[frame][1], mTVecs[frame][2]};
 
-      double diff = diffX * diffX + diffY * diffY;
-      rmsError += diff;
-      double dist = sqrt(diff);
-      meanError += dist;
-      ++numObservations;
+      for (size_t i = 0; i < mFramedGridPoints[frame].size(); ++i)
+      {
+        double objectPoint[3] = {mFramedGridPoints[frame][i].x,
+                                 mFramedGridPoints[frame][i].y,
+                                 mFramedGridPoints[frame][i].z};
+        double imagePoint[2] = {mFramedImagePoints[frame][i].x,
+                                mFramedImagePoints[frame][i].y};
 
-      minError = std::min(minError, dist);
-      maxError = std::max(maxError, dist);
+        double residual[2];
+
+        fisheyeReprojectionError(objectPoint, imagePoint, cameraMatrix, distortionCoeffs, rvec, tvec, residual);
+
+        double squaredError = residual[0] * residual[0] + residual[1] * residual[1];
+
+        mRMSError += squaredError;
+        double dist = sqrt(squaredError);
+        mMeanError += dist;
+
+        mMinError = std::min(mMinError, dist);
+        mMaxError = std::max(mMaxError, dist);
+
+        ++numObservations;
+      }
     }
+
+    mMeanError /= numObservations;
+    mRMSError = sqrt(mRMSError / numObservations);
   }
 
-  meanError /= numObservations;
-  rmsError = sqrt(rmsError / numObservations);
-
-  return {rmsError, meanError, minError, maxError};
+  return {mRMSError, mMeanError, mMinError, mMaxError};
 }
 
 cv::Matx33d Calibration::cameraMatrix() const { return mCameraMatrix; }

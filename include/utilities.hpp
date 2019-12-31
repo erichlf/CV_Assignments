@@ -14,6 +14,73 @@
 namespace assignments
 {
 
+enum Intrinsics
+{
+  fx = 0,
+  fy = 1,
+  cx = 2,
+  cy = 3
+};
+
+enum DistCoeffs
+{
+  k1 = 0,
+  k2 = 1,
+  k3 = 2,
+  k4 = 3
+};
+
+enum Coords
+{
+  x = 0,
+  y = 1,
+  z = 2
+};
+
+template <typename T>
+static void fisheyeReprojectionError(const T* const objectPoint, const T* const imagePoint,
+                                     const T* const cameraMatrix, const T* const distortionCoeffs,
+                                     const T* const rvec, const T* const tvec,
+                                     T* reprojectionError)
+{
+  T point[3];
+  ceres::AngleAxisRotatePoint(rvec, objectPoint, point);
+  point[0] += tvec[Coords::x];
+  point[1] += tvec[Coords::y];
+  point[2] += tvec[Coords::z];
+
+  const T k1 = distortionCoeffs[DistCoeffs::k1];
+  const T k2 = distortionCoeffs[DistCoeffs::k2];
+  const T k3 = distortionCoeffs[DistCoeffs::k3];
+  const T k4 = distortionCoeffs[DistCoeffs::k4];
+
+  const auto xp = point[Coords::x] / point[Coords::z];
+  const auto yp = point[Coords::y] / point[Coords::z];
+
+  const auto r = sqrt(xp * xp + yp * yp);
+  const auto theta = atan(r);
+
+  const T theta_r = (r != static_cast<T>(0)) ? theta * (static_cast<T>(1) + k1 * theta * theta
+                                                        + k2 * pow(theta, 4)
+                                                        + k3 * pow(theta, 6)
+                                                        + k4 * pow(theta, 8)) / r
+                                             : static_cast<T>(0);
+
+  const T xpp = theta_r * xp;
+  const T ypp = theta_r * yp;
+
+  const T fx = cameraMatrix[Intrinsics::fx];
+  const T fy = cameraMatrix[Intrinsics::fy];
+  const T cx = cameraMatrix[Intrinsics::cx];
+  const T cy = cameraMatrix[Intrinsics::cy];
+
+  const T u = xpp * fx + cx;
+  const T v = ypp * fy + cy;
+
+  reprojectionError[Coords::x] = u - imagePoint[Coords::x];
+  reprojectionError[Coords::y] = v - imagePoint[Coords::y];
+}
+
 namespace
 {
 /*
@@ -274,15 +341,25 @@ double reprojection_error(const std::vector<cv::Point3d>& object_points,
 {
   std::vector<cv::Point2d> projected_image_points;
 
-  // cv::fisheye::projectPoints(object_points, rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
-  project_points(object_points, rvec, tvec, camera_matrix, dist_coeffs, projected_image_points);
+  double cameraMatrix[4] = {camera_matrix(0, 0), camera_matrix(1, 1), camera_matrix(0, 2), camera_matrix(1, 2)};
+  double distortionCoeffs[4] = {dist_coeffs(0), dist_coeffs(1), dist_coeffs(2), dist_coeffs(3)};
+  double rVec[3] = {rvec[0], rvec[1], rvec[2]};
+  double tVec[3] = {tvec[0], tvec[1], tvec[2]};
 
   double error = 0;
   for (int i = 0; i < object_points.size(); ++i)
   {
-    const auto u_diff = image_points[i].x - projected_image_points[i].x;
-    const auto v_diff = image_points[i].y - projected_image_points[i].y;
-    error += sqrt(u_diff * u_diff + v_diff * v_diff);
+    double objectPoint[3] = {object_points[i].x,
+                             object_points[i].y,
+                             object_points[i].z};
+    double imagePoint[2] = {image_points[i].x,
+                            image_points[i].y};
+
+    double residual[2];
+
+    fisheyeReprojectionError(objectPoint, imagePoint, cameraMatrix, distortionCoeffs, rVec, tVec, residual);
+
+    error += sqrt(residual[0] * residual[0] + residual[1] * residual[1]);
   }
 
   error /= image_points.size();
@@ -421,29 +498,6 @@ fisheye_solvePnPRansac(const std::vector<cv::Point3d>& object_points,
 
 namespace
 {
-
-enum Intrinsics
-{
-  fx = 0,
-  fy = 1,
-  cx = 2,
-  cy = 3
-};
-
-enum DistCoeffs
-{
-  k1 = 0,
-  k2 = 1,
-  k3 = 2,
-  k4 = 3
-};
-
-enum Coords
-{
-  x = 0,
-  y = 1,
-  z = 2
-};
 
 /*
  * \brief cost functor which only allows for all parameters to vary

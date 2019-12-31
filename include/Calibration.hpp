@@ -21,29 +21,6 @@ load_correspondence(const std::string& json_file);
 namespace
 {
 
-enum Intrinsics
-{
-  fx = 0,
-  fy = 1,
-  cx = 2,
-  cy = 3
-};
-
-enum DistCoeffs
-{
-  k1 = 0,
-  k2 = 1,
-  k3 = 2,
-  k4 = 3
-};
-
-enum Coords
-{
-  x = 0,
-  y = 1,
-  z = 2
-};
-
 /*
  * \brief cost functor which only allows for all parameters to vary
  */
@@ -57,49 +34,17 @@ class CalibrationCost
   { }
 
   template <typename T>
-  bool operator()(const T* const camera_matrix, const T* const dist_coeffs,
+  bool operator()(const T* const cameraMatrix, const T* const distortionCoeffs,
                   const T* const rvec, const T* const tvec,
-                  T* reprojection_error) const
+                  T* residual) const
   {
-    T old_point[3] = {static_cast<T>(mObjectPoint->x),
-                      static_cast<T>(mObjectPoint->y),
-                      static_cast<T>(mObjectPoint->z)};
-    T point[3];
-    ceres::AngleAxisRotatePoint(rvec, old_point, point);
-    point[0] += tvec[Coords::x];
-    point[1] += tvec[Coords::y];
-    point[2] += tvec[Coords::z];
+    T objectPoint[3] = {static_cast<T>(mObjectPoint->x),
+                        static_cast<T>(mObjectPoint->y),
+                        static_cast<T>(mObjectPoint->z)};
+    T imagePoint[2] = {static_cast<T>(mImagePoint->x),
+                       static_cast<T>(mImagePoint->y)};
 
-    const T k1 = dist_coeffs[DistCoeffs::k1];
-    const T k2 = dist_coeffs[DistCoeffs::k2];
-    const T k3 = dist_coeffs[DistCoeffs::k3];
-    const T k4 = dist_coeffs[DistCoeffs::k4];
-
-    const auto xp = point[Coords::x] / point[Coords::z];
-    const auto yp = point[Coords::y] / point[Coords::z];
-
-    const auto r = sqrt(xp * xp + yp * yp);
-    const auto theta = atan(r);
-
-    const T theta_r = (r != static_cast<T>(0)) ? theta * (static_cast<T>(1) + k1 * theta * theta
-                                                          + k2 * pow(theta, 4)
-                                                          + k3 * pow(theta, 6)
-                                                          + k4 * pow(theta, 8)) / r
-                                               : static_cast<T>(0);
-
-    const T xpp = theta_r * xp;
-    const T ypp = theta_r * yp;
-
-    const T fx = camera_matrix[Intrinsics::fx];
-    const T fy = camera_matrix[Intrinsics::fy];
-    const T cx = camera_matrix[Intrinsics::cx];
-    const T cy = camera_matrix[Intrinsics::cy];
-
-    const T u = xpp * fx + cx;
-    const T v = ypp * fy + cy;
-
-    reprojection_error[Coords::x] = u - static_cast<T>(mImagePoint->x);
-    reprojection_error[Coords::y] = v - static_cast<T>(mImagePoint->y);
+    fisheyeReprojectionError(objectPoint, imagePoint, cameraMatrix, distortionCoeffs, rvec, tvec, residual);
 
     return true;
   }
@@ -136,7 +81,7 @@ class Calibration
 
   cv::Matx<double, 1, 4> distortionCoeffs() const;
 
-  std::tuple<double, double, double, double> errors() const;
+  std::tuple<double, double, double, double> errors(bool recalculate=false);
 
  private:
   inline cv::Vec6d vij(const size_t i, const size_t j, const cv::Mat& H);
@@ -155,6 +100,10 @@ class Calibration
   std::vector<cv::Vec3d> mRVecs;
   std::vector<cv::Vec3d> mTVecs;
   bool mVerbose;
+  double mMinError = std::numeric_limits<double>::max();
+  double mMaxError = std::numeric_limits<double>::min();
+  double mMeanError = 0;
+  double mRMSError = 0;
 };
 
 }  // namespace assignments::calibration

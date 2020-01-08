@@ -57,6 +57,7 @@ Calibration::Calibration(const cv::Size& imageSize,
     mDistortionCoeffs(0, 0, 0, 0),
     mVerbose(verbose)
 {
+  mFramedInlierIndices.resize(mFramedImagePoints.size());
   mRVecs.resize(mFramedImagePoints.size());
   mTVecs.resize(mFramedImagePoints.size());
 }
@@ -96,97 +97,20 @@ void Calibration::estimateIntrinsics()
   mDistortionCoeffs(3) = cvDistortionCoeffs.at<double>(0, 3);
 
   return;
-  // Zhang's method of intrisic estimation.
-
-  cv::Mat V = cv::Mat::zeros(2 * numImages, 6, CV_64F);
-  for (size_t frame = 0; frame < numImages; ++frame)
-  {
-    std::vector<cv::Point2d> reducedGridPoints;
-    for (const auto& gridPoint : mFramedGridPoints[frame])
-      reducedGridPoints.push_back({gridPoint.x, gridPoint.y});
-
-    cv::Mat homographyMatrix = cv::findHomography(reducedGridPoints, mFramedImagePoints[frame]);
-
-    const auto G1 = vij(0, 1, homographyMatrix);
-    const auto G2 = vij(0, 0, homographyMatrix) - vij(1, 1, homographyMatrix);
-
-    V.at<double>(2 * frame, 0) = G1(0);
-    V.at<double>(2 * frame, 1) = G1(1);
-    V.at<double>(2 * frame, 2) = G1(2);
-    V.at<double>(2 * frame, 3) = G1(3);
-    V.at<double>(2 * frame, 4) = G1(4);
-    V.at<double>(2 * frame, 5) = G1(5);
-
-    V.at<double>(2 * frame + 1, 0) = G2(0);
-    V.at<double>(2 * frame + 1, 1) = G2(1);
-    V.at<double>(2 * frame + 1, 2) = G2(2);
-    V.at<double>(2 * frame + 1, 3) = G2(3);
-    V.at<double>(2 * frame + 1, 4) = G2(4);
-    V.at<double>(2 * frame + 1, 5) = G2(5);
-  }
-
-  cv::Mat U, S, VT;
-  cv::SVD::compute(V, S, U, VT);
-
-  double minVal, maxVal;
-  int minLoc, maxLoc;
-
-  cv::minMaxIdx(S, &minVal, &maxVal, &minLoc, &maxLoc);
-
-  cv::Vec6d b(VT.at<double>(minLoc,0),
-              VT.at<double>(minLoc,1),
-              VT.at<double>(minLoc,2),
-              VT.at<double>(minLoc,3),
-              VT.at<double>(minLoc,4),
-              VT.at<double>(minLoc,5));
-
-  double w = b(0) * b(2) * b(5) - b(1) * b(1) * b(5) + 2 * b(1) * b(3) * b(4) - b(2) * b(3) * b(3);
-  double d = b(0) * b(2) - b(1) * b(1);
-
-  double fx = sqrt(w / (d * b(0)));
-  double fy = sqrt(w / (d * d) * b(0));
-  double cx = (b(1) * b(4) - b(2) * b(3)) / d;
-  double cy = (b(1) * b(3) - b(0) * b(4))/ d;
-
-  mCameraMatrix(0, 0) = fx;
-  mCameraMatrix(0, 2) = cx;
-  mCameraMatrix(1, 1) = fy;
-  mCameraMatrix(1, 2) = cy;
-
-  std::cout << "Initial Intrinsics Guess:" << std::endl << mCameraMatrix << std::endl;
 }
 
 void Calibration::estimateExtrinsics()
 {
   for (size_t frame = 0; frame < mFramedGridPoints.size(); ++frame)
   {
-    std::vector<int> inlierIdx;
-    std::vector<int> outlierIdx;
-    size_t iter;
-    std::tie(mRVecs[frame], mTVecs[frame], inlierIdx, outlierIdx, iter) =
-        fisheye_solvePnPRansac(mFramedGridPoints[frame], mFramedImagePoints[frame], mCameraMatrix, mDistortionCoeffs);
-
-    // std::vector<cv::Point2d> framedUndistortedPoints;
-    // cv::fisheye::undistortPoints(mFramedImagePoints[frame], framedUndistortedPoints, mCameraMatrix, mDistortionCoeffs,
-    //                              cv::noArray(), mCameraMatrix);
-    // cv::solvePnPRansac(mFramedGridPoints[frame], framedUndistortedPoints, mCameraMatrix, mDistortionCoeffs,
-    //                    mRVecs[frame], mTVecs[frame]);
+    std::vector<cv::Point2d> framedUndistortedPoints;
+    cv::Vec4d noDistortion{0, 0, 0, 0};
+    cv::fisheye::undistortPoints(mFramedImagePoints[frame], framedUndistortedPoints, mCameraMatrix, mDistortionCoeffs,
+                                 cv::noArray(), mCameraMatrix);
+    cv::solvePnPRansac(mFramedGridPoints[frame], framedUndistortedPoints, mCameraMatrix, noDistortion,
+                       mRVecs[frame], mTVecs[frame], false, 0.8*mFramedGridPoints[frame].size(), 1.0, 0.99,
+                       mFramedInlierIndices[frame]);
   }
-  // const auto& [RMSE, meanError, minError, maxError] = errors(true);
-
-  // std::cout << "Intrinsics:" << std::endl << mCameraMatrix << std::endl;
-  // std::cout << "Distortion Coeffs: " << mDistortionCoeffs << std::endl;
-  // std::cout << "Root Mean Squared Error: " << RMSE << std::endl;
-  // std::cout << "Mean Error: " << meanError << std::endl;
-  // std::cout << "Minimum Error: " << minError << std::endl;
-  // std::cout << "Maximum Error: " << maxError << std::endl;
-
-  // // result errors
-  // mRMSError = 0;
-  // mMeanError = 0;
-  // mMaxError = std::numeric_limits<double>::min();
-  // mMinError = std::numeric_limits<double>::max();
-
 }
 
 void Calibration::optimizeIntrinsics()
@@ -206,7 +130,7 @@ void Calibration::optimizeIntrinsics()
   {
     rvecs[frame][0] = mRVecs[frame][0]; rvecs[frame][1] = mRVecs[frame][1]; rvecs[frame][2] = mRVecs[frame][2];
     tvecs[frame][0] = mTVecs[frame][0]; tvecs[frame][1] = mTVecs[frame][1]; tvecs[frame][2] = mTVecs[frame][2];
-    for (size_t j = 0; j < mFramedImagePoints[frame].size(); ++j)
+    for (const auto& j : mFramedInlierIndices[frame])
     {
       ceres::CostFunction* costFunction = CalibrationCost::Create(&(mFramedGridPoints[frame][j]),
                                                                   &(mFramedImagePoints[frame][j]));
@@ -220,12 +144,15 @@ void Calibration::optimizeIntrinsics()
   ceres::Solver::Options options;
   options.num_threads = 10;
   options.minimizer_progress_to_stdout = mVerbose;
-  // options.use_nonmonotonic_steps = true;
-  // options.preconditioner_type = ceres::SCHUR_JACOBI;
-  // options.linear_solver_type = ceres::ITERATIVE_SCHUR;
-  // options.use_inner_iterations = true;
-  options.max_num_iterations = 100;
-  options.minimizer_progress_to_stdout = mVerbose;
+  options.update_state_every_iteration = true;
+  options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
+  options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
+  options.max_num_iterations = 75;
+  options.use_inner_iterations = false;
+  options.function_tolerance = 1e-6;
+  options.gradient_tolerance = 1e-10;
+  options.parameter_tolerance = 1e-8;
+  options.max_trust_region_radius = 1e12;
 
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
@@ -250,7 +177,7 @@ void Calibration::optimizeIntrinsics()
   {
     mRVecs[frame](0) = rvecs[frame][0]; mRVecs[frame](1) = rvecs[frame][1]; mRVecs[frame](2) = rvecs[frame][2];
     mTVecs[frame](0) = tvecs[frame][0]; mTVecs[frame](1) = tvecs[frame][1]; mTVecs[frame](2) = tvecs[frame][2];
-    for (size_t j = 0; j < mFramedImagePoints[frame].size(); ++j)
+    for (const auto& j : mFramedInlierIndices[frame])
     {
       double residual[2];
 
@@ -283,14 +210,6 @@ void Calibration::calibrate()
   estimateIntrinsics();
   // estimate the position of the camera wrt to each frame
   estimateExtrinsics();
-
-  // std::cout << "Intrinsics:" << std::endl << mCameraMatrix << std::endl;
-  // std::cout << "Distortion Coeffs: " << mDistortionCoeffs << std::endl;
-  // std::cout << "Root Mean Squared Error: " << mRMSError << std::endl;
-  // std::cout << "Mean Error: " << mMeanError << std::endl;
-  // std::cout << "Minimum Error: " << mMinError << std::endl;
-  // std::cout << "Maximum Error: " << mMaxError << std::endl;
-
   // run ceres optimization to get closer camera extrinsics
   optimizeIntrinsics();
 }
@@ -313,7 +232,7 @@ std::tuple<double, double, double, double> Calibration::errors(bool recalculate/
       double rvec[3] = {mRVecs[frame][0], mRVecs[frame][1], mRVecs[frame][2]};
       double tvec[3] = {mTVecs[frame][0], mTVecs[frame][1], mTVecs[frame][2]};
 
-      for (size_t i = 0; i < mFramedGridPoints[frame].size(); ++i)
+      for (const auto& i : mFramedInlierIndices[frame])
       {
         double objectPoint[3] = {mFramedGridPoints[frame][i].x,
                                  mFramedGridPoints[frame][i].y,

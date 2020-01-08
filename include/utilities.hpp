@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <limits>
 #include <numeric>
+#include <memory>
 
 #pragma once
 
@@ -37,17 +38,89 @@ enum Coords
   z = 2
 };
 
+template <typename T> using Vector3 = std::array<T, 3>;
+
+template <typename T>
+class Transform
+{
+ public:
+  Transform(const T angleAxisX, const T angleAxisY, const T angleAxisZ,
+            const T x, const T y, const T z) :
+    mAngleAxis{angleAxisX, angleAxisY, angleAxisZ},
+    mTranslation{x, y, z}
+  { }
+
+  Transform(const T* angleAxis, const T* translation) :
+    mAngleAxis{angleAxis[Coords::x], angleAxis[Coords::y], angleAxis[Coords::z]},
+    mTranslation{translation[Coords::x], translation[Coords::y], translation[Coords::z]}
+  { }
+
+  auto transform(const T* point) const noexcept
+  {
+    auto result = Vector3<T>{};
+    ceres::AngleAxisRotatePoint(mAngleAxis.data(), point, result.data());
+
+    result[Coords::x] += mTranslation[Coords::x];
+    result[Coords::y] += mTranslation[Coords::y];
+    result[Coords::z] += mTranslation[Coords::z];
+
+    return result;
+  }
+
+  auto invert() const noexcept
+  {
+    // use ceres::AngleAxisRotationPoint to create an inverse
+    auto invertedTransform = Transform<T>{0, 0, 0,
+                                          -mAngleAxis[Coords::x], -mAngleAxis[Coords::y], -mAngleAxis[Coords::z]};
+
+    auto rotatedTranslation = invertedTransform.transform(mTranslation);
+
+    invertedTransform.mX = -rotatedTranslation[Coords::x];
+    invertedTransform.mY = -rotatedTranslation[Coords::y];
+    invertedTransform.mZ = -rotatedTranslation[Coords::z];
+
+    return invertedTransform;
+  }
+
+  auto t() const noexcept
+  {
+    return mTranslation;
+  }
+
+  auto R() const noexcept
+  {
+    return mAngleAxis;
+  }
+
+ private:
+  Vector3<T> mTranslation;  // translation
+  Vector3<T> mAngleAxis;  // rotation
+};
+
+template <typename T>
+std::ostream& operator<<(std::ostream& out, const Transform<T>& transform)
+{
+  const auto translation = transform.t();
+  const auto rotation = transform.R();
+
+  out << "Angle Axis (" << rotation[Coords::x] << ","
+                        << rotation[Coords::y] << ","
+                        << rotation[Coords::z] << ")" << std::endl;
+  out << "Translation (" << translation[Coords::x] << ","
+                         << translation[Coords::y] << ","
+                         << translation[Coords::z] << ")";
+  return out;
+}
+
 template <typename T>
 static void fisheyeReprojectionError(const T* const objectPoint, const T* const imagePoint,
                                      const T* const cameraMatrix, const T* const distortionCoeffs,
                                      const T* const rvec, const T* const tvec,
                                      T* reprojectionError)
 {
-  T point[3];
-  ceres::AngleAxisRotatePoint(rvec, objectPoint, point);
-  point[0] += tvec[Coords::x];
-  point[1] += tvec[Coords::y];
-  point[2] += tvec[Coords::z];
+  Transform<T> transform{rvec, tvec};
+
+  auto point = transform.transform(objectPoint);
 
   const T k1 = distortionCoeffs[DistCoeffs::k1];
   const T k2 = distortionCoeffs[DistCoeffs::k2];

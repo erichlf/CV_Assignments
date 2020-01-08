@@ -95,6 +95,7 @@ class Calibration
   cv::Size mImageSize;
   std::vector<std::vector<cv::Point3d>> mFramedGridPoints;
   std::vector<std::vector<cv::Point2d>> mFramedImagePoints;
+  std::vector<std::vector<int>> mFramedInlierIndices;
   cv::Matx33d mCameraMatrix;
   cv::Matx<double, 1, 4> mDistortionCoeffs;
   std::vector<cv::Vec3d> mRVecs;

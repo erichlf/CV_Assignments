@@ -8,137 +8,161 @@ namespace assignments::calibration
  * \param json_file   string containing the location of the json file to read
  * \return {object_points, image_points}  correspondences between 3D and 2D
  */
-std::tuple<std::vector<std::vector<cv::Point3d>>, std::vector<std::vector<cv::Point2d>>>
+std::tuple<std::vector<std::vector<Vector3<double>>>, std::vector<std::vector<Vector2<double>>>>
 load_correspondence(const std::string& json_file)
 {
   std::ifstream ifs(json_file);
-  Json::Value correspondences_json;
-  ifs >> correspondences_json;
+  Json::Value correspondenceJson;
+  ifs >> correspondenceJson;
 
-  std::vector<std::vector<cv::Point3d>> frames_world_points;
-  std::vector<std::vector<cv::Point2d>> frames_image_points;
-  const auto frames = correspondences_json["correspondences"];
-  int frame_number = 0;
+  std::vector<std::vector<Vector3<double>>> framesWorldPoints;
+  std::vector<std::vector<Vector2<double>>> framesImagePoints;
+  const auto frames = correspondenceJson["correspondences"];
+  std::string frameNumber;
   for (const auto& frame : frames)
   {
-    std::vector<cv::Point3d> world_points;
-    std::vector<cv::Point2d> image_points;
+    frameNumber = frame.getMemberNames()[0];
+
+    std::vector<Vector3<double>> worldPoints;
+    std::vector<Vector2<double>> imagePoints;
     int corr = 0;
-    for (const auto& correspondence : frame[std::to_string(frame_number)])
+    for (const auto& correspondence : frame[frameNumber])
     {
       if (corr % 10)
         continue;
 
-      world_points.push_back({correspondence["grid_point"][0].asDouble(),
+      worldPoints.push_back({correspondence["grid_point"][0].asDouble(),
                               correspondence["grid_point"][1].asDouble(),
                               correspondence["grid_point"][2].asDouble()});
-      image_points.push_back({correspondence["image_point"][0].asDouble(),
+      imagePoints.push_back({correspondence["image_point"][0].asDouble(),
                               correspondence["image_point"][1].asDouble()});
     }
-    frames_world_points.emplace_back(world_points);
-    frames_image_points.emplace_back(image_points);
-
-    ++frame_number;
+    framesWorldPoints.emplace_back(worldPoints);
+    framesImagePoints.emplace_back(imagePoints);
   }
 
-  return {frames_world_points, frames_image_points};
+  return {framesWorldPoints, framesImagePoints};
 }
 
 Calibration::Calibration(const cv::Size& imageSize,
-                         const std::vector<std::vector<cv::Point3d>>& framedGridPoints,
-                         const std::vector<std::vector<cv::Point2d>>& framedImagePoints,
+                         const std::vector<std::vector<Vector3<double>>>& gridPoints,
+                         const std::vector<std::vector<std::vector<Vector2<double>>>>& imagePoints,
                          const bool verbose/*=false*/) :
-    mImageSize(std::move(imageSize)),
-    mFramedGridPoints(std::move(framedGridPoints)),
-    mFramedImagePoints(std::move(framedImagePoints)),
-    mCameraMatrix(1, 0, imageSize.width / 2.0,
-                  0, 1, imageSize.height / 2.0,
-                  0, 0, 1),
-    mDistortionCoeffs(0, 0, 0, 0),
-    mVerbose(verbose)
+  mImageSize(std::move(imageSize)),
+  mGridPoints(std::move(gridPoints)),
+  mImagePoints(std::move(imagePoints)),
+  mVerbose(verbose)
 {
-  mFramedInlierIndices.resize(mFramedImagePoints.size());
-  mRVecs.resize(mFramedImagePoints.size());
-  mTVecs.resize(mFramedImagePoints.size());
-}
-
-inline cv::Vec6d Calibration::vij(const size_t i, const size_t j, const cv::Mat& H)
-{
-  return cv::Vec6d(H.at<double>(0, i) * H.at<double>(0, j),
-                   H.at<double>(0, i) * H.at<double>(1, j) + H.at<double>(1, i) * H.at<double>(0, j),
-                   H.at<double>(1, i) * H.at<double>(1, j),
-                   H.at<double>(2, i) * H.at<double>(0, j) + H.at<double>(0, i) * H.at<double>(2, j),
-                   H.at<double>(2, i) * H.at<double>(1, j) + H.at<double>(1, i) * H.at<double>(2, j),
-                   H.at<double>(2, i) * H.at<double>(2, j));
+  mNumCameras = mImagePoints.size();
+  mNumFrames = mGridPoints.size();
+  mInlierIndices = std::vector<std::vector<std::vector<int>>>(mNumCameras, std::vector<std::vector<int>>(mNumFrames));
+  mCameraFromCameraMain.resize(mNumCameras);
+  mCameraMainFromGrid.resize(mNumFrames);
+  mIntrinsics.resize(mNumCameras);
 }
 
 void Calibration::estimateIntrinsics()
 {
-  size_t numImages = mFramedImagePoints.size();
   size_t numSubImage = 35;
-  size_t stride = numImages / numSubImage; // This code is extremely slow to run, when running on the 681300 points
-  cv::Mat cvDistortionCoeffs = cv::Mat::zeros(1, 4, CV_64F);  // temp place holder so that calibrate can be used
-  std::vector<cv::Vec3d> cvRVecs;
-  std::vector<cv::Vec3d> cvTVecs;
-
-  std::vector<std::vector<cv::Point3d>> subGrid;
-  std::vector<std::vector<cv::Point2d>> subImage;
-  for (size_t i = 0; i < numImages; i += stride)
+  size_t stride = mNumFrames / numSubImage; // This code is extremely slow to run, when running on the 681300 points
+  cv::Mat cameraMatrix = cv::Mat::eye(3, 3, CV_64F);
+  cv::Mat distortionCoeffs = cv::Mat::zeros(1, 4, CV_64F);  // temp place holder so that calibrate can be used
+  for (size_t camera = 0; camera < mNumCameras; ++camera)
   {
-    subGrid.push_back(mFramedGridPoints[i]);
-    subImage.push_back(mFramedImagePoints[i]);
+    std::vector<std::vector<cv::Point3d>> subGrid;
+    std::vector<std::vector<cv::Point2d>> subImage;
+    for (size_t frame = 0; frame < mNumFrames; frame += stride)
+    {
+      const auto gridPoints = convertToPoints(mGridPoints[frame]);
+      const auto imagePoints = convertToPoints(mImagePoints[camera][frame]);
+
+      subGrid.push_back(gridPoints);
+      subImage.push_back(imagePoints);
+    }
+    cv::fisheye::calibrate(subGrid, subImage, mImageSize, cameraMatrix, distortionCoeffs, cv::noArray(), cv::noArray(),
+                           cv::fisheye::CALIB_RECOMPUTE_EXTRINSIC | cv::fisheye::CALIB_FIX_SKEW);
+
+    mIntrinsics[camera] = Intrinsics<double>(cameraMatrix, distortionCoeffs);
   }
-  cv::fisheye::calibrate(subGrid, subImage, mImageSize, mCameraMatrix, cvDistortionCoeffs, cv::noArray(), cv::noArray(),
-                         cv::fisheye::CALIB_RECOMPUTE_EXTRINSIC | cv::fisheye::CALIB_FIX_SKEW);
-
-  mDistortionCoeffs(0) = cvDistortionCoeffs.at<double>(0, 0);
-  mDistortionCoeffs(1) = cvDistortionCoeffs.at<double>(0, 1);
-  mDistortionCoeffs(2) = cvDistortionCoeffs.at<double>(0, 2);
-  mDistortionCoeffs(3) = cvDistortionCoeffs.at<double>(0, 3);
-
-  return;
 }
 
 void Calibration::estimateExtrinsics()
 {
-  for (size_t frame = 0; frame < mFramedGridPoints.size(); ++frame)
+  cv::Vec4d noDistortion{0, 0, 0, 0};
+  for (size_t camera = 0; camera < mNumCameras; ++camera)
   {
-    std::vector<cv::Point2d> framedUndistortedPoints;
-    cv::Vec4d noDistortion{0, 0, 0, 0};
-    cv::fisheye::undistortPoints(mFramedImagePoints[frame], framedUndistortedPoints, mCameraMatrix, mDistortionCoeffs,
-                                 cv::noArray(), mCameraMatrix);
-    cv::solvePnPRansac(mFramedGridPoints[frame], framedUndistortedPoints, mCameraMatrix, noDistortion,
-                       mRVecs[frame], mTVecs[frame], false, 0.8*mFramedGridPoints[frame].size(), 1.0, 0.99,
-                       mFramedInlierIndices[frame]);
+    const auto intrinsics = mIntrinsics[camera].intrinsics();
+    const auto distCoeffs = mIntrinsics[camera].distCoeffs();
+    cv::Matx33d cameraMatrix(intrinsics[0], 0, intrinsics[2],
+                             0, intrinsics[1], intrinsics[3],
+                             0, 0, 1);
+    cv::Matx<double, 1, 4> distortionCoeffs(distCoeffs[0], distCoeffs[1], distCoeffs[2], distCoeffs[3]);
+
+    for (size_t frame = 0; frame < mNumFrames; ++frame)
+    {
+      const auto gridPoints = convertToPoints(mGridPoints[frame]);
+      const auto imagePoints = convertToPoints(mImagePoints[camera][frame]);
+      std::vector<cv::Point2d> undistortedPoints;
+      cv::fisheye::undistortPoints(imagePoints, undistortedPoints, cameraMatrix, distortionCoeffs, cv::noArray(),
+                                   cameraMatrix);
+
+      cv::Vec3d rvec;
+      cv::Vec3d tvec;
+
+      cv::solvePnPRansac(gridPoints, undistortedPoints, cameraMatrix, noDistortion, rvec, tvec, false,
+                         0.8*mGridPoints[frame].size(), 1.0, 0.99, mInlierIndices[camera][frame]);
+
+      if (camera == 0)
+      {
+        mCameraFromCameraMain[camera] = Transform<double>(0, 0, 0, 0, 0, 0);
+        mCameraMainFromGrid[frame] = Transform<double>(rvec, tvec);
+      }
+      else
+      {
+        const auto r = mCameraMainFromGrid[frame].R();
+        const auto t = mCameraMainFromGrid[frame].t();
+
+        const auto cameraFromGrid = cv::Affine3f(rvec, tvec);
+        const auto gridFromCameraMain = cv::Affine3f(cv::Vec3d(r[0], r[1], r[2]), cv::Vec3d(t[0], t[1], t[2])).inv();
+
+        const auto cameraFromCameraMain = cameraFromGrid * gridFromCameraMain;
+
+        rvec = cameraFromCameraMain.rvec();
+        tvec = cameraFromCameraMain.translation();
+
+        mCameraFromCameraMain[camera] = Transform<double>(rvec, tvec);
+      }
+    }
   }
 }
 
 void Calibration::optimizeIntrinsics()
 {
-  double cameraMatrix[] = {mCameraMatrix(0, 0), mCameraMatrix(1, 1), mCameraMatrix(0, 2), mCameraMatrix(1, 2)};
-  double distortionCoeffs[] = {mDistortionCoeffs(0, 0), mDistortionCoeffs(0, 1),
-                               mDistortionCoeffs(0, 2), mDistortionCoeffs(0, 3)};
-  std::vector<double[3]> rvecs(mRVecs.size());
-  std::vector<double[3]> tvecs(mTVecs.size());
-
   ceres::Problem problem;
   ceres::LossFunction* lossFunction = new ceres::HuberLoss(0.1);
 
   // create residuals for each observation
   size_t numObservations = 0;
-  for (size_t frame = 0; frame < mFramedImagePoints.size(); ++frame)
+  size_t camera = 0;
+  for (size_t camera = 0; camera < mNumCameras; ++camera)
   {
-    rvecs[frame][0] = mRVecs[frame][0]; rvecs[frame][1] = mRVecs[frame][1]; rvecs[frame][2] = mRVecs[frame][2];
-    tvecs[frame][0] = mTVecs[frame][0]; tvecs[frame][1] = mTVecs[frame][1]; tvecs[frame][2] = mTVecs[frame][2];
-    for (const auto& j : mFramedInlierIndices[frame])
+    auto cameraFromCameraMain = reinterpret_cast<double*>(mCameraFromCameraMain.data() + camera);
+    auto intrinsics = reinterpret_cast<double*>(mIntrinsics.data() + camera);
+    for (size_t frame = 0; frame < mNumFrames; ++frame)
     {
-      ceres::CostFunction* costFunction = CalibrationCost::Create(&(mFramedGridPoints[frame][j]),
-                                                                  &(mFramedImagePoints[frame][j]));
+      auto cameraMainFromGrid = reinterpret_cast<double*>(mCameraMainFromGrid.data() + frame);
+      for (const auto& point : mInlierIndices[camera][frame])
+      {
+        ceres::CostFunction* costFunction = CalibrationCost<double>::Create(mGridPoints[frame][point],
+                                                                            mImagePoints[camera][frame][point]);
 
-      problem.AddResidualBlock(costFunction, lossFunction, cameraMatrix, distortionCoeffs,
-                               rvecs[frame], tvecs[frame]);
-      ++numObservations;
+        problem.AddResidualBlock(costFunction, lossFunction, intrinsics,
+                                 cameraMainFromGrid, cameraFromCameraMain);
+        ++numObservations;
+      }
     }
+    if (camera == 0)  // no need to calculate camera from camera extrinsics when we are on the main camera
+      problem.SetParameterBlockConstant(cameraFromCameraMain);
   }
 
   ceres::Solver::Options options;
@@ -162,41 +186,30 @@ void Calibration::optimizeIntrinsics()
     std::cout << summary.FullReport() << std::endl;
   }
 
-  // update all our data
-  mDistortionCoeffs(DistCoeffs::k1) = distortionCoeffs[DistCoeffs::k1];
-  mDistortionCoeffs(DistCoeffs::k2) = distortionCoeffs[DistCoeffs::k2];
-  mDistortionCoeffs(DistCoeffs::k3) = distortionCoeffs[DistCoeffs::k3];
-  mDistortionCoeffs(DistCoeffs::k4) = distortionCoeffs[DistCoeffs::k4];
-
-  mCameraMatrix(0, 0) = cameraMatrix[0];
-  mCameraMatrix(1, 1) = cameraMatrix[1];
-  mCameraMatrix(0, 2) = cameraMatrix[2];
-  mCameraMatrix(1, 2) = cameraMatrix[3];
-
-  for (size_t frame = 0; frame < mFramedImagePoints.size(); ++frame)
+  for (size_t camera = 0; camera < mNumCameras; ++camera)
   {
-    mRVecs[frame](0) = rvecs[frame][0]; mRVecs[frame](1) = rvecs[frame][1]; mRVecs[frame](2) = rvecs[frame][2];
-    mTVecs[frame](0) = tvecs[frame][0]; mTVecs[frame](1) = tvecs[frame][1]; mTVecs[frame](2) = tvecs[frame][2];
-    for (const auto& j : mFramedInlierIndices[frame])
+    for (size_t frame = 0; frame < mNumFrames; ++frame)
     {
-      double residual[2];
+      for (const auto& point : mInlierIndices[camera][frame])
+      {
+        double residual[2];
 
-      double objectPoint[3] = {mFramedGridPoints[frame][j].x,
-                               mFramedGridPoints[frame][j].y,
-                               mFramedGridPoints[frame][j].z};
-      double imagePoint[2] = {mFramedImagePoints[frame][j].x,
-                              mFramedImagePoints[frame][j].y};
+        auto cameraMainPoint = mCameraMainFromGrid[frame].transform(mGridPoints[frame][point].data());
+        auto cameraPoint = mCameraFromCameraMain[camera].transform(cameraMainPoint.data());
 
-      fisheyeReprojectionError(objectPoint, imagePoint, cameraMatrix, distortionCoeffs,
-                               rvecs[frame], tvecs[frame], residual);
+        auto projectedPoint = mIntrinsics[camera].projectPoint(cameraPoint.data());
 
-      double squaredError = residual[0] * residual[0] + residual[1] * residual[1];
-      double dist = sqrt(squaredError);
+        residual[Coords::x] = projectedPoint[Coords::x] - mImagePoints[camera][frame][point][Coords::x];
+        residual[Coords::y] = projectedPoint[Coords::y] - mImagePoints[camera][frame][point][Coords::y];
 
-      mRMSError += squaredError;
-      mMeanError += dist;
-      mMinError = std::min(dist, mMinError);
-      mMaxError = std::max(dist, mMaxError);
+        double squaredError = residual[Coords::x] * residual[Coords::x] + residual[Coords::y] * residual[Coords::y];
+        double dist = sqrt(squaredError);
+
+        mRMSError += squaredError;
+        mMeanError += dist;
+        mMinError = std::min(dist, mMinError);
+        mMaxError = std::max(dist, mMaxError);
+      }
     }
   }
 
@@ -218,42 +231,48 @@ std::tuple<double, double, double, double> Calibration::errors(bool recalculate/
 {
   if (recalculate)
   {
-    double cameraMatrix[4] = {mCameraMatrix(0, 0), mCameraMatrix(1, 1), mCameraMatrix(0, 2), mCameraMatrix(1, 2)};
-    double distortionCoeffs[4] = {mDistortionCoeffs(0), mDistortionCoeffs(1), mDistortionCoeffs(2), mDistortionCoeffs(3)};
-
     mMinError = std::numeric_limits<double>::max();
     mMaxError = std::numeric_limits<double>::min();
     mMeanError = 0;
     mRMSError = 0;
 
     size_t numObservations = 0;
-    for (size_t frame = 0; frame < mFramedGridPoints.size(); ++frame)
+
+    for (size_t camera = 0; camera < mNumCameras; ++camera)
     {
-      double rvec[3] = {mRVecs[frame][0], mRVecs[frame][1], mRVecs[frame][2]};
-      double tvec[3] = {mTVecs[frame][0], mTVecs[frame][1], mTVecs[frame][2]};
+      // if this is the main camera then this should be identity
+      const auto cameraFromCameraMain = mCameraFromCameraMain[camera];
+      const auto intrinsics = mIntrinsics[camera];
 
-      for (const auto& i : mFramedInlierIndices[frame])
+      for (size_t frame = 0; frame < mNumFrames; ++frame)
       {
-        double objectPoint[3] = {mFramedGridPoints[frame][i].x,
-                                 mFramedGridPoints[frame][i].y,
-                                 mFramedGridPoints[frame][i].z};
-        double imagePoint[2] = {mFramedImagePoints[frame][i].x,
-                                mFramedImagePoints[frame][i].y};
+        for (const auto& j : mInlierIndices[camera][frame])
+        {
+          double residual[2];
 
-        double residual[2];
+          const auto cameraMainFromGrid = mCameraMainFromGrid[frame];
 
-        fisheyeReprojectionError(objectPoint, imagePoint, cameraMatrix, distortionCoeffs, rvec, tvec, residual);
+          const auto gridPoint = Vector3<double>{mGridPoints[frame][j][0],
+                                                 mGridPoints[frame][j][1],
+                                                 mGridPoints[frame][j][2]};
 
-        double squaredError = residual[0] * residual[0] + residual[1] * residual[1];
+          auto cameraMainPoint = cameraMainFromGrid.transform(gridPoint.data());
+          auto cameraPoint = cameraFromCameraMain.transform(cameraMainPoint.data());
 
-        mRMSError += squaredError;
-        double dist = sqrt(squaredError);
-        mMeanError += dist;
+          auto projectedPoint = intrinsics.projectPoint(cameraPoint.data());
 
-        mMinError = std::min(mMinError, dist);
-        mMaxError = std::max(mMaxError, dist);
+          const auto imagePoint = Vector3<double>{mImagePoints[camera][frame][j][0], mImagePoints[camera][frame][j][1]};
+          residual[Coords::x] = projectedPoint[Coords::x] - imagePoint[Coords::x];
+          residual[Coords::y] = projectedPoint[Coords::y] - imagePoint[Coords::y];
 
-        ++numObservations;
+          double squaredError = residual[Coords::x] * residual[Coords::x] + residual[Coords::y] * residual[Coords::y];
+          double dist = sqrt(squaredError);
+
+          mRMSError += squaredError;
+          mMeanError += dist;
+          mMinError = std::min(dist, mMinError);
+          mMaxError = std::max(dist, mMaxError);
+        }
       }
     }
 
@@ -264,8 +283,14 @@ std::tuple<double, double, double, double> Calibration::errors(bool recalculate/
   return {mRMSError, mMeanError, mMinError, mMaxError};
 }
 
-cv::Matx33d Calibration::cameraMatrix() const { return mCameraMatrix; }
+std::array<double, 4> Calibration::cameraMatrix(const size_t camera) const noexcept
+{
+  return mIntrinsics[camera].intrinsics();
+}
 
-cv::Matx<double, 1, 4> Calibration::distortionCoeffs() const { return mDistortionCoeffs; }
+std::array<double, 4> Calibration::distortionCoeffs(const size_t camera) const noexcept
+{
+  return mIntrinsics[camera].distCoeffs();
+}
 
 }  // namespace assignments::calibration

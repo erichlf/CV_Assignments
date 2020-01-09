@@ -15,51 +15,57 @@
 namespace assignments::calibration
 {
 
-std::tuple<std::vector<std::vector<cv::Point3d>>, std::vector<std::vector<cv::Point2d>>>
+std::tuple<std::vector<std::vector<Vector3<double>>>, std::vector<std::vector<Vector2<double>>>>
 load_correspondence(const std::string& json_file);
 
 namespace
 {
 
-/*
- * \brief cost functor which only allows for all parameters to vary
- */
+template <typename T>
 class CalibrationCost
 {
  public:
-  CalibrationCost(const cv::Point3d* object_point,
-                  const cv::Point2d* image_point) :
-      mObjectPoint(object_point),
-      mImagePoint(image_point)
+  CalibrationCost(const Vector3<T>& gridPoint,
+                  const Vector2<T>& imagePoint) :
+    mGridPoint(gridPoint),
+    mImagePoint(imagePoint)
   { }
 
-  template <typename T>
-  bool operator()(const T* const cameraMatrix, const T* const distortionCoeffs,
-                  const T* const rvec, const T* const tvec,
-                  T* residual) const
+  template <typename S>
+  bool operator()(const S* const intrinsics,
+                  const S* const cameraMainFromGrid,
+                  const S* const cameraFromCameraMain,
+                  S* residual) const
   {
-    T objectPoint[3] = {static_cast<T>(mObjectPoint->x),
-                        static_cast<T>(mObjectPoint->y),
-                        static_cast<T>(mObjectPoint->z)};
-    T imagePoint[2] = {static_cast<T>(mImagePoint->x),
-                       static_cast<T>(mImagePoint->y)};
+    const auto cameraMainFromGrid_ = reinterpret_cast<const Transform<S>*> (cameraMainFromGrid);
+    // if this is the main camera then this should be identity
+    const auto cameraFromCameraMain_ = reinterpret_cast<const Transform<S>*>(cameraFromCameraMain);
 
-    fisheyeReprojectionError(objectPoint, imagePoint, cameraMatrix, distortionCoeffs, rvec, tvec, residual);
+    const auto gridPoint = Vector3<S>{S(mGridPoint[0]), S(mGridPoint[1]), S(mGridPoint[2])};
+    auto cameraMainPoint = cameraMainFromGrid_->transform(gridPoint.data());
+    auto cameraPoint = cameraFromCameraMain_->transform(cameraMainPoint.data());
+
+    const auto intrinsics_ = reinterpret_cast<const Intrinsics<S>*>(intrinsics);
+
+    auto projectedPoint = intrinsics_->projectPoint(cameraPoint.data());
+
+    const auto imagePoint = Vector3<S>{S(mImagePoint[0]), S(mImagePoint[1])};
+    residual[Coords::x] = projectedPoint[Coords::x] - imagePoint[Coords::x];
+    residual[Coords::y] = projectedPoint[Coords::y] - imagePoint[Coords::y];
 
     return true;
   }
 
-  static ceres::CostFunction* Create(const cv::Point3d* object_point,
-                                     const cv::Point2d* image_point)
+  static ceres::CostFunction* Create(const Vector3<T>& gridPoint,
+                                     const Vector2<T>& imagePoint)
   {
-    // each residual block returns a single number (1),takes a rotation vector (3), and a translation vector (3)
-    return (new ceres::AutoDiffCostFunction<CalibrationCost, 2, 4, 4, 3, 3>(new CalibrationCost(object_point,
-                                                                                                image_point)));
+    return (new ceres::AutoDiffCostFunction<CalibrationCost, 2, 8, 6, 6>(new CalibrationCost(gridPoint,
+                                                                                             imagePoint)));
   }
 
  private:
-  const cv::Point3d* mObjectPoint;
-  const cv::Point2d* mImagePoint;
+  const Vector3<T> mGridPoint;
+  const Vector2<T> mImagePoint;
 };
 
 }  // namespace anonymous
@@ -71,21 +77,19 @@ class Calibration
 {
  public:
   Calibration(const cv::Size& imageSize,
-              const std::vector<std::vector<cv::Point3d>>& framedGridPoints,
-              const std::vector<std::vector<cv::Point2d>>& framedImagePoints,
-              const bool verbose = false);
+              const std::vector<std::vector<Vector3<double>>>& gridPoints,
+              const std::vector<std::vector<std::vector<Vector2<double>>>>& imagePoints,
+              const bool verbose=false);
 
   void calibrate();
 
-  cv::Matx33d cameraMatrix() const;
+  std::array<double, 4> cameraMatrix(const size_t camera) const noexcept;
 
-  cv::Matx<double, 1, 4> distortionCoeffs() const;
+  std::array<double, 4> distortionCoeffs(const size_t camera) const noexcept;
 
   std::tuple<double, double, double, double> errors(bool recalculate=false);
 
  private:
-  inline cv::Vec6d vij(const size_t i, const size_t j, const cv::Mat& H);
-
   void estimateIntrinsics();
 
   void estimateExtrinsics();
@@ -93,13 +97,14 @@ class Calibration
   void optimizeIntrinsics();
 
   cv::Size mImageSize;
-  std::vector<std::vector<cv::Point3d>> mFramedGridPoints;
-  std::vector<std::vector<cv::Point2d>> mFramedImagePoints;
-  std::vector<std::vector<int>> mFramedInlierIndices;
-  cv::Matx33d mCameraMatrix;
-  cv::Matx<double, 1, 4> mDistortionCoeffs;
-  std::vector<cv::Vec3d> mRVecs;
-  std::vector<cv::Vec3d> mTVecs;
+  std::vector<std::vector<Vector3<double>>> mGridPoints;
+  std::vector<std::vector<std::vector<Vector2<double>>>> mImagePoints;
+  std::vector<std::vector<std::vector<int>>> mInlierIndices;
+  std::vector<Intrinsics<double>> mIntrinsics;
+  std::vector<Transform<double>> mCameraMainFromGrid;
+  std::vector<Transform<double>> mCameraFromCameraMain;
+  size_t mNumCameras;
+  size_t mNumFrames;
   bool mVerbose;
   double mMinError = std::numeric_limits<double>::max();
   double mMaxError = std::numeric_limits<double>::min();

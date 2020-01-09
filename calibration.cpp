@@ -4,6 +4,7 @@
 
 #include "Calibration.hpp"
 #include "utilities.hpp"
+#include "types.hpp"
 
 struct Args
 {
@@ -60,19 +61,27 @@ Args process_args(int argc, char** argv)
 int main(int argc, char** argv)
 {
   const auto options = process_args(argc, argv);
+  using assignments::Vector3;
+  using assignments::Vector2;
 
-  std::vector<std::vector<cv::Point3d>> framedGridPoints;
-  std::vector<std::vector<cv::Point2d>> framedImagePoints;
+  std::vector<std::vector<Vector3<double>>> gridPoints;
+  std::vector<std::vector<std::vector<Vector2<double>>>> imagePoints(1);
   cv::Size imageSize(1920, 1080);
 
-  std::tie(framedGridPoints, framedImagePoints) = assignments::calibration::load_correspondence(options.input_file);
+  std::tie(gridPoints, imagePoints[0]) = assignments::calibration::load_correspondence(options.input_file);
 
-  assignments::calibration::Calibration calibration(imageSize, framedGridPoints, framedImagePoints, options.verbose);
+  assignments::calibration::Calibration calibration(imageSize, gridPoints, imagePoints, options.verbose);
   calibration.calibrate();
 
-  const auto cameraMatrix = calibration.cameraMatrix();
-  const auto distortionCoeffs = calibration.distortionCoeffs();
+  const auto intrinsics = calibration.cameraMatrix(0);
+  const auto distCoeffs = calibration.distortionCoeffs(0);
   const auto& [RMSE, meanError, minError, maxError] = calibration.errors();
+
+  cv::Matx33d cameraMatrix(intrinsics[0], 0, intrinsics[2],
+                           0, intrinsics[1], intrinsics[3],
+                           0, 0, 1);
+
+  cv::Matx<double, 1, 4> distortionCoeffs(distCoeffs[0], distCoeffs[1], distCoeffs[2], distCoeffs[3]);
 
   std::cout << "Intrinsics:" << std::endl << cameraMatrix << std::endl;
   std::cout << "Distortion Coeffs: " << distortionCoeffs << std::endl;

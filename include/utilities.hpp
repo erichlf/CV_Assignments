@@ -10,92 +10,29 @@
 #include <numeric>
 #include <memory>
 
+#include "types.hpp"
+
 #pragma once
 
 namespace assignments
 {
-
-enum Intrinsics
+std::vector<cv::Point2d> convertToPoints(std::vector<Vector2<double>> points)
 {
-  fx = 0,
-  fy = 1,
-  cx = 2,
-  cy = 3
-};
+  std::vector<cv::Point2d> cvPoints;
+  for (const auto& point : points)
+    cvPoints.push_back(cv::Point2d(point[0], point[1]));
 
-enum DistCoeffs
+  return cvPoints;
+}
+
+std::vector<cv::Point3d> convertToPoints(std::vector<Vector3<double>> points)
 {
-  k1 = 0,
-  k2 = 1,
-  k3 = 2,
-  k4 = 3
-};
+  std::vector<cv::Point3d> cvPoints;
+  for (const auto& point : points)
+    cvPoints.push_back(cv::Point3d(point[0], point[1], point[2]));
 
-enum Coords
-{
-  x = 0,
-  y = 1,
-  z = 2
-};
-
-template <typename T> using Vector3 = std::array<T, 3>;
-
-template <typename T>
-class Transform
-{
- public:
-  Transform(const T angleAxisX, const T angleAxisY, const T angleAxisZ,
-            const T x, const T y, const T z) :
-    mAngleAxis{angleAxisX, angleAxisY, angleAxisZ},
-    mTranslation{x, y, z}
-  { }
-
-  Transform(const T* angleAxis, const T* translation) :
-    mAngleAxis{angleAxis[Coords::x], angleAxis[Coords::y], angleAxis[Coords::z]},
-    mTranslation{translation[Coords::x], translation[Coords::y], translation[Coords::z]}
-  { }
-
-  auto transform(const T* point) const noexcept
-  {
-    auto result = Vector3<T>{};
-    ceres::AngleAxisRotatePoint(mAngleAxis.data(), point, result.data());
-
-    result[Coords::x] += mTranslation[Coords::x];
-    result[Coords::y] += mTranslation[Coords::y];
-    result[Coords::z] += mTranslation[Coords::z];
-
-    return result;
-  }
-
-  auto invert() const noexcept
-  {
-    // use ceres::AngleAxisRotationPoint to create an inverse
-    auto invertedTransform = Transform<T>{0, 0, 0,
-                                          -mAngleAxis[Coords::x], -mAngleAxis[Coords::y], -mAngleAxis[Coords::z]};
-
-    auto rotatedTranslation = invertedTransform.transform(mTranslation);
-
-    invertedTransform.mX = -rotatedTranslation[Coords::x];
-    invertedTransform.mY = -rotatedTranslation[Coords::y];
-    invertedTransform.mZ = -rotatedTranslation[Coords::z];
-
-    return invertedTransform;
-  }
-
-  auto t() const noexcept
-  {
-    return mTranslation;
-  }
-
-  auto R() const noexcept
-  {
-    return mAngleAxis;
-  }
-
- private:
-  Vector3<T> mTranslation;  // translation
-  Vector3<T> mAngleAxis;  // rotation
-};
+  return cvPoints;
+}
 
 template <typename T>
 std::ostream& operator<<(std::ostream& out, const Transform<T>& transform)
@@ -113,45 +50,19 @@ std::ostream& operator<<(std::ostream& out, const Transform<T>& transform)
 }
 
 template <typename T>
-static void fisheyeReprojectionError(const T* const objectPoint, const T* const imagePoint,
-                                     const T* const cameraMatrix, const T* const distortionCoeffs,
-                                     const T* const rvec, const T* const tvec,
-                                     T* reprojectionError)
+void fisheyeReprojectionError(const T* const objectPoint, const T* const imagePoint,
+                              const T* const cameraMatrix, const T* const distortionCoeffs,
+                              const T* const rvec, const T* const tvec,
+                              T* reprojectionError)
 {
   Transform<T> transform{rvec, tvec};
+  Intrinsics<T> intrinsics(cameraMatrix, distortionCoeffs);
 
   auto point = transform.transform(objectPoint);
+  auto projectedPoint = intrinsics.projectPoint(point.data());
 
-  const T k1 = distortionCoeffs[DistCoeffs::k1];
-  const T k2 = distortionCoeffs[DistCoeffs::k2];
-  const T k3 = distortionCoeffs[DistCoeffs::k3];
-  const T k4 = distortionCoeffs[DistCoeffs::k4];
-
-  const auto xp = point[Coords::x] / point[Coords::z];
-  const auto yp = point[Coords::y] / point[Coords::z];
-
-  const auto r = sqrt(xp * xp + yp * yp);
-  const auto theta = atan(r);
-
-  const T theta_r = (r != static_cast<T>(0)) ? theta * (static_cast<T>(1) + k1 * theta * theta
-                                                        + k2 * pow(theta, 4)
-                                                        + k3 * pow(theta, 6)
-                                                        + k4 * pow(theta, 8)) / r
-                                             : static_cast<T>(0);
-
-  const T xpp = theta_r * xp;
-  const T ypp = theta_r * yp;
-
-  const T fx = cameraMatrix[Intrinsics::fx];
-  const T fy = cameraMatrix[Intrinsics::fy];
-  const T cx = cameraMatrix[Intrinsics::cx];
-  const T cy = cameraMatrix[Intrinsics::cy];
-
-  const T u = xpp * fx + cx;
-  const T v = ypp * fy + cy;
-
-  reprojectionError[Coords::x] = u - imagePoint[Coords::x];
-  reprojectionError[Coords::y] = v - imagePoint[Coords::y];
+  reprojectionError[Coords::x] = projectedPoint[Coords::x] - imagePoint[Coords::x];
+  reprojectionError[Coords::y] = projectedPoint[Coords::y] - imagePoint[Coords::y];
 }
 
 namespace
@@ -618,10 +529,10 @@ struct ReprojectionCost
     const T xpp = theta_r * xp;
     const T ypp = theta_r * yp;
 
-    const T fx = camera_matrix[Intrinsics::fx];
-    const T fy = camera_matrix[Intrinsics::fy];
-    const T cx = camera_matrix[Intrinsics::cx];
-    const T cy = camera_matrix[Intrinsics::cy];
+    const T fx = camera_matrix[CameraIntrinsics::fx];
+    const T fy = camera_matrix[CameraIntrinsics::fy];
+    const T cx = camera_matrix[CameraIntrinsics::cx];
+    const T cy = camera_matrix[CameraIntrinsics::cy];
 
     const T u = xpp * fx + cx;
     const T v = ypp * fy + cy;
@@ -716,8 +627,8 @@ bundle_adjust(const std::vector<cv::Point3d>& object_points, const std::vector<c
   if (print_summary)
     std::cout << summary.FullReport() << std::endl;
 
-  cv::Matx33d new_camera_matrix(camera_matrix[Intrinsics::fx], 0.0, camera_matrix[Intrinsics::cx],
-                                0.0, camera_matrix[Intrinsics::fy], camera_matrix[Intrinsics::cy],
+  cv::Matx33d new_camera_matrix(camera_matrix[CameraIntrinsics::fx], 0.0, camera_matrix[CameraIntrinsics::cx],
+                                0.0, camera_matrix[CameraIntrinsics::fy], camera_matrix[CameraIntrinsics::cy],
                                 0.0, 0.0, 1.0);
   cv::Matx<double, 1, 4> new_fisheye_model(fisheye_model[0], fisheye_model[1], fisheye_model[2], fisheye_model[3]);
   cv::Vec3d new_rvec(rvec[0], rvec[1], rvec[2]);

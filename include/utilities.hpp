@@ -16,6 +16,7 @@
 
 namespace assignments
 {
+
 std::vector<cv::Point2d> convertToPoints(std::vector<Vector2<double>> points)
 {
   std::vector<cv::Point2d> cvPoints;
@@ -32,6 +33,31 @@ std::vector<cv::Point3d> convertToPoints(std::vector<Vector3<double>> points)
     cvPoints.push_back(cv::Point3d(point[0], point[1], point[2]));
 
   return cvPoints;
+}
+
+/*
+ * \brief given a json file containing correspondences build the correspondences
+ * \param json_file   string containing the location of the json file to read
+ * \return {object_points, image_points}  correspondences between 3D and 2D
+ */
+std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>> load_correspondence(const std::string& json_file)
+{
+  std::ifstream ifs(json_file);
+  Json::Value correspondences_json;
+  ifs >> correspondences_json;
+
+  std::vector<cv::Point3d> world_points;
+  std::vector<cv::Point2d> image_points;
+  for (const auto& correspondence : correspondences_json["correspondences"])
+  {
+    world_points.push_back({correspondence["world_point"][0].asDouble(),
+                            correspondence["world_point"][1].asDouble(),
+                            correspondence["world_point"][2].asDouble()});
+    image_points.push_back({correspondence["image_point"][0].asDouble(),
+                            correspondence["image_point"][1].asDouble()});
+  }
+
+  return {world_points, image_points};
 }
 
 template <typename T>
@@ -139,31 +165,6 @@ void print_result(const cv::Affine3d& objects_from_camera, const double reprojec
   std::cout << objects_from_camera.translation() << std::endl;
   std::cout << "Reprojection Error:" << std::endl;
   std::cout << reprojection_error << std::endl;
-}
-
-/*
- * \brief given a json file containing correspondences build the correspondences
- * \param json_file   string containing the location of the json file to read
- * \return {object_points, image_points}  correspondences between 3D and 2D
- */
-std::tuple<std::vector<cv::Point3d>, std::vector<cv::Point2d>> load_correspondence(const std::string& json_file)
-{
-  std::ifstream ifs(json_file);
-  Json::Value correspondences_json;
-  ifs >> correspondences_json;
-
-  std::vector<cv::Point3d> world_points;
-  std::vector<cv::Point2d> image_points;
-  for (const auto& correspondence : correspondences_json["correspondences"])
-  {
-    world_points.push_back({correspondence["world_point"][0].asDouble(),
-                            correspondence["world_point"][1].asDouble(),
-                            correspondence["world_point"][2].asDouble()});
-    image_points.push_back({correspondence["image_point"][0].asDouble(),
-                            correspondence["image_point"][1].asDouble()});
-  }
-
-  return {world_points, image_points};
 }
 
 /*

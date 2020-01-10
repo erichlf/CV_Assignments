@@ -6,75 +6,83 @@ namespace assignments::calibration
 /*
  * \brief given a json file containing correspondences build the correspondences
  * \param json_file   string containing the location of the json file to read
- * \return {object_points, image_points}  correspondences between 3D and 2D
+ * \return Detections{object_points, image_points, frames}  correspondences between 3D and 2D
  */
-std::tuple<std::vector<std::vector<Vector3<double>>>, std::vector<std::vector<Vector2<double>>>>
-load_correspondence(const std::string& json_file)
+Detections load_correspondence(const std::string& json_file)
 {
   std::ifstream ifs(json_file);
   Json::Value correspondenceJson;
   ifs >> correspondenceJson;
 
+  Detections detections;
+  detections.maxFrame = std::numeric_limits<int>::min();
+
   std::vector<std::vector<Vector3<double>>> framesWorldPoints;
   std::vector<std::vector<Vector2<double>>> framesImagePoints;
   const auto frames = correspondenceJson["correspondences"];
-  std::string frameNumber;
+
+  size_t frameIndex = 0;
   for (const auto& frame : frames)
   {
-    frameNumber = frame.getMemberNames()[0];
+    std::string frameNumber = frame.getMemberNames()[0];
 
-    std::vector<Vector3<double>> worldPoints;
-    std::vector<Vector2<double>> imagePoints;
+    detections.gridPoints.emplace_back(std::vector<Vector3<double>>());
+    detections.imagePoints.emplace_back(std::vector<Vector2<double>>());
     int corr = 0;
     for (const auto& correspondence : frame[frameNumber])
     {
-      if (corr % 10)
-        continue;
-
-      worldPoints.push_back({correspondence["grid_point"][0].asDouble(),
-                              correspondence["grid_point"][1].asDouble(),
-                              correspondence["grid_point"][2].asDouble()});
-      imagePoints.push_back({correspondence["image_point"][0].asDouble(),
-                              correspondence["image_point"][1].asDouble()});
+      detections.gridPoints[frameIndex].push_back({correspondence["grid_point"][0].asDouble(),
+                                                   correspondence["grid_point"][1].asDouble(),
+                                                   correspondence["grid_point"][2].asDouble()});
+      detections.imagePoints[frameIndex].push_back({correspondence["image_point"][0].asDouble(),
+                                                    correspondence["image_point"][1].asDouble()});
     }
-    framesWorldPoints.emplace_back(worldPoints);
-    framesImagePoints.emplace_back(imagePoints);
+    detections.frames[frameNumber] = frameIndex++;
+    detections.maxFrame = std::max(std::stoi(frameNumber), detections.maxFrame);
   }
 
-  return {framesWorldPoints, framesImagePoints};
+  return detections;
 }
 
 Calibration::Calibration(const cv::Size& imageSize,
-                         const std::vector<std::vector<Vector3<double>>>& gridPoints,
-                         const std::vector<std::vector<std::vector<Vector2<double>>>>& imagePoints,
+                         const std::vector<Detections>& detections,
                          const bool verbose/*=false*/) :
   mImageSize(std::move(imageSize)),
-  mGridPoints(std::move(gridPoints)),
-  mImagePoints(std::move(imagePoints)),
+  mDetections(std::move(detections)),
   mVerbose(verbose)
 {
-  mNumCameras = mImagePoints.size();
-  mNumFrames = mGridPoints.size();
-  mInlierIndices = std::vector<std::vector<std::vector<int>>>(mNumCameras, std::vector<std::vector<int>>(mNumFrames));
+  mNumCameras = mDetections.size();
+  mInlierIndices = std::vector<std::unordered_map<std::string, std::vector<int>>>(mNumCameras);
+
+  // determine the total number of frames so that we can allocate the memory for our cameraMainFromGrid
+  int maxFrame = std::numeric_limits<int>::min();
+  for (size_t camera = 0; camera < mDetections.size(); ++camera)
+    maxFrame = std::max(mDetections[camera].maxFrame, maxFrame);
+
+  mCameraMainFromGrid.resize(maxFrame + 1);  // assume index starts at 0
+
   mCameraFromCameraMain.resize(mNumCameras);
-  mCameraMainFromGrid.resize(mNumFrames);
   mIntrinsics.resize(mNumCameras);
 }
 
 void Calibration::estimateIntrinsics()
 {
-  size_t numSubImage = 35;
-  size_t stride = mNumFrames / numSubImage; // This code is extremely slow to run, when running on the 681300 points
   cv::Mat cameraMatrix = cv::Mat::eye(3, 3, CV_64F);
   cv::Mat distortionCoeffs = cv::Mat::zeros(1, 4, CV_64F);  // temp place holder so that calibrate can be used
+  size_t numSubImage = 35;
   for (size_t camera = 0; camera < mNumCameras; ++camera)
   {
+    size_t stride = mDetections[camera].frames.size() / numSubImage;
     std::vector<std::vector<cv::Point3d>> subGrid;
     std::vector<std::vector<cv::Point2d>> subImage;
-    for (size_t frame = 0; frame < mNumFrames; frame += stride)
+    for (int frameIdx = 0; frameIdx < mDetections[camera].frames.size(); frameIdx += stride)
     {
-      const auto gridPoints = convertToPoints(mGridPoints[frame]);
-      const auto imagePoints = convertToPoints(mImagePoints[camera][frame]);
+      const auto frame = mDetections[camera].frames.find(std::to_string(frameIdx));
+      if (frame == mDetections[camera].frames.end())
+        continue;
+
+      const auto gridPoints = convertToPoints(mDetections[camera].gridPoints[frame->second]);
+      const auto imagePoints = convertToPoints(mDetections[camera].imagePoints[frame->second]);
 
       subGrid.push_back(gridPoints);
       subImage.push_back(imagePoints);
@@ -98,10 +106,11 @@ void Calibration::estimateExtrinsics()
                              0, 0, 1);
     cv::Matx<double, 1, 4> distortionCoeffs(distCoeffs[0], distCoeffs[1], distCoeffs[2], distCoeffs[3]);
 
-    for (size_t frame = 0; frame < mNumFrames; ++frame)
+    for (const auto& frame : mDetections[camera].frames)
     {
-      const auto gridPoints = convertToPoints(mGridPoints[frame]);
-      const auto imagePoints = convertToPoints(mImagePoints[camera][frame]);
+      int frameIDX = std::stoi(frame.first);
+      const auto gridPoints = convertToPoints(mDetections[camera].gridPoints[frame.second]);
+      const auto imagePoints = convertToPoints(mDetections[camera].imagePoints[frame.second]);
       std::vector<cv::Point2d> undistortedPoints;
       cv::fisheye::undistortPoints(imagePoints, undistortedPoints, cameraMatrix, distortionCoeffs, cv::noArray(),
                                    cameraMatrix);
@@ -109,18 +118,30 @@ void Calibration::estimateExtrinsics()
       cv::Vec3d rvec;
       cv::Vec3d tvec;
 
+      std::vector<int> inlierIndices;
       cv::solvePnPRansac(gridPoints, undistortedPoints, cameraMatrix, noDistortion, rvec, tvec, false,
-                         0.8*mGridPoints[frame].size(), 1.0, 0.99, mInlierIndices[camera][frame]);
+                         0.8*mDetections[camera].gridPoints[frame.second].size(), 1.0, 0.99, inlierIndices);
 
-      if (camera == 0)
+      mInlierIndices[camera][frame.first] = inlierIndices;
+
+      if (camera == mRootCamera)
       {
         mCameraFromCameraMain[camera] = Transform<double>(0, 0, 0, 0, 0, 0);
-        mCameraMainFromGrid[frame] = Transform<double>(rvec, tvec);
+        mCameraMainFromGrid[frameIDX] = Transform<double>(rvec, tvec);
       }
       else
       {
-        const auto r = mCameraMainFromGrid[frame].R();
-        const auto t = mCameraMainFromGrid[frame].t();
+        Vector3<double> r;
+        Vector3<double> t;
+        if (!mDetections[mRootCamera].frames.count(frame.first))  // frame doesn't exists in the main camera
+        {
+          // shift our transform over to the cameraMain as our guess
+          mCameraMainFromGrid[frameIDX] = Transform(rvec(0), rvec(1), rvec(2),
+                                                        tvec(0) + 0.20, tvec(1), tvec(2));
+        }
+
+        r = mCameraMainFromGrid[frameIDX].R();
+        t = mCameraMainFromGrid[frameIDX].t();
 
         const auto cameraFromGrid = cv::Affine3f(rvec, tvec);
         const auto gridFromCameraMain = cv::Affine3f(cv::Vec3d(r[0], r[1], r[2]), cv::Vec3d(t[0], t[1], t[2])).inv();
@@ -148,20 +169,22 @@ void Calibration::optimizeIntrinsics()
   {
     auto cameraFromCameraMain = reinterpret_cast<double*>(mCameraFromCameraMain.data() + camera);
     auto intrinsics = reinterpret_cast<double*>(mIntrinsics.data() + camera);
-    for (size_t frame = 0; frame < mNumFrames; ++frame)
+    for (const auto& frame : mDetections[camera].frames)
     {
-      auto cameraMainFromGrid = reinterpret_cast<double*>(mCameraMainFromGrid.data() + frame);
-      for (const auto& point : mInlierIndices[camera][frame])
+      auto cameraMainFromGrid = reinterpret_cast<double*>(mCameraMainFromGrid.data() + std::stoi(frame.first));
+      for (const auto& point : mInlierIndices[camera][frame.first])
       {
-        ceres::CostFunction* costFunction = CalibrationCost<double>::Create(mGridPoints[frame][point],
-                                                                            mImagePoints[camera][frame][point]);
+        const auto gridPoints = mDetections[camera].gridPoints[frame.second];
+        const auto imagePoints = mDetections[camera].imagePoints[frame.second];
+        ceres::CostFunction* costFunction = CalibrationCost<double>::Create(gridPoints[point],
+                                                                            imagePoints[point]);
 
         problem.AddResidualBlock(costFunction, lossFunction, intrinsics,
                                  cameraMainFromGrid, cameraFromCameraMain);
         ++numObservations;
       }
     }
-    if (camera == 0)  // no need to calculate camera from camera extrinsics when we are on the main camera
+    if (camera == mRootCamera)  // no need to calculate camera from camera extrinsics when we are on the main camera
       problem.SetParameterBlockConstant(cameraFromCameraMain);
   }
 
@@ -185,36 +208,6 @@ void Calibration::optimizeIntrinsics()
   {
     std::cout << summary.FullReport() << std::endl;
   }
-
-  for (size_t camera = 0; camera < mNumCameras; ++camera)
-  {
-    for (size_t frame = 0; frame < mNumFrames; ++frame)
-    {
-      for (const auto& point : mInlierIndices[camera][frame])
-      {
-        double residual[2];
-
-        auto cameraMainPoint = mCameraMainFromGrid[frame].transform(mGridPoints[frame][point].data());
-        auto cameraPoint = mCameraFromCameraMain[camera].transform(cameraMainPoint.data());
-
-        auto projectedPoint = mIntrinsics[camera].projectPoint(cameraPoint.data());
-
-        residual[Coords::x] = projectedPoint[Coords::x] - mImagePoints[camera][frame][point][Coords::x];
-        residual[Coords::y] = projectedPoint[Coords::y] - mImagePoints[camera][frame][point][Coords::y];
-
-        double squaredError = residual[Coords::x] * residual[Coords::x] + residual[Coords::y] * residual[Coords::y];
-        double dist = sqrt(squaredError);
-
-        mRMSError += squaredError;
-        mMeanError += dist;
-        mMinError = std::min(dist, mMinError);
-        mMaxError = std::max(dist, mMaxError);
-      }
-    }
-  }
-
-  mMeanError /= numObservations;
-  mRMSError = sqrt(mRMSError / numObservations);
 }
 
 void Calibration::calibrate()
@@ -227,70 +220,59 @@ void Calibration::calibrate()
   optimizeIntrinsics();
 }
 
-std::tuple<double, double, double, double> Calibration::errors(bool recalculate/*=false*/)
+std::tuple<double, double, double, double> Calibration::errors()
 {
-  if (recalculate)
+  mMinError = std::numeric_limits<double>::max();
+  mMaxError = std::numeric_limits<double>::min();
+  mMeanError = 0;
+  mRMSError = 0;
+
+  size_t numObservations = 0;
+
+  for (size_t camera = 0; camera < mNumCameras; ++camera)
   {
-    mMinError = std::numeric_limits<double>::max();
-    mMaxError = std::numeric_limits<double>::min();
-    mMeanError = 0;
-    mRMSError = 0;
-
-    size_t numObservations = 0;
-
-    for (size_t camera = 0; camera < mNumCameras; ++camera)
+    for (const auto& frame : mDetections[camera].frames)
     {
-      // if this is the main camera then this should be identity
-      const auto cameraFromCameraMain = mCameraFromCameraMain[camera];
-      const auto intrinsics = mIntrinsics[camera];
-
-      for (size_t frame = 0; frame < mNumFrames; ++frame)
+      const auto gridPoints = mDetections[camera].gridPoints[frame.second];
+      const auto imagePoints = mDetections[camera].imagePoints[frame.second];
+      for (const auto& point : mInlierIndices[camera][frame.first])
       {
-        for (const auto& j : mInlierIndices[camera][frame])
-        {
-          double residual[2];
+        double residual[2];
+        const auto cameraMainPoint = mCameraMainFromGrid[std::stoi(frame.first)].transform(gridPoints[point].data());
+        const auto cameraPoint = mCameraFromCameraMain[camera].transform(cameraMainPoint.data());
 
-          const auto cameraMainFromGrid = mCameraMainFromGrid[frame];
+        auto projectedPoint = mIntrinsics[camera].projectPoint(cameraPoint.data());
 
-          const auto gridPoint = Vector3<double>{mGridPoints[frame][j][0],
-                                                 mGridPoints[frame][j][1],
-                                                 mGridPoints[frame][j][2]};
+        residual[Coords::x] = projectedPoint[Coords::x] - imagePoints[point][Coords::x];
+        residual[Coords::y] = projectedPoint[Coords::y] - imagePoints[point][Coords::y];
 
-          auto cameraMainPoint = cameraMainFromGrid.transform(gridPoint.data());
-          auto cameraPoint = cameraFromCameraMain.transform(cameraMainPoint.data());
+        double squaredError = residual[Coords::x] * residual[Coords::x] + residual[Coords::y] * residual[Coords::y];
+        double dist = sqrt(squaredError);
 
-          auto projectedPoint = intrinsics.projectPoint(cameraPoint.data());
+        mRMSError += squaredError;
+        mMeanError += dist;
+        mMinError = std::min(dist, mMinError);
+        mMaxError = std::max(dist, mMaxError);
 
-          const auto imagePoint = Vector3<double>{mImagePoints[camera][frame][j][0], mImagePoints[camera][frame][j][1]};
-          residual[Coords::x] = projectedPoint[Coords::x] - imagePoint[Coords::x];
-          residual[Coords::y] = projectedPoint[Coords::y] - imagePoint[Coords::y];
-
-          double squaredError = residual[Coords::x] * residual[Coords::x] + residual[Coords::y] * residual[Coords::y];
-          double dist = sqrt(squaredError);
-
-          mRMSError += squaredError;
-          mMeanError += dist;
-          mMinError = std::min(dist, mMinError);
-          mMaxError = std::max(dist, mMaxError);
-        }
+        ++numObservations;
       }
     }
-
-    mMeanError /= numObservations;
-    mRMSError = sqrt(mRMSError / numObservations);
   }
+
+  mMeanError /= numObservations;
+  mRMSError = sqrt(mRMSError / numObservations);
 
   return {mRMSError, mMeanError, mMinError, mMaxError};
 }
 
-std::array<double, 4> Calibration::cameraMatrix(const size_t camera) const noexcept
+Intrinsics<double> Calibration::intrinsics(const size_t camera) const noexcept
 {
-  return mIntrinsics[camera].intrinsics();
+  return mIntrinsics[camera];
 }
 
-std::array<double, 4> Calibration::distortionCoeffs(const size_t camera) const noexcept
+Transform<double> Calibration::transform(const size_t camera) const noexcept
 {
-  return mIntrinsics[camera].distCoeffs();
+  return mCameraFromCameraMain[camera];
 }
 
 }  // namespace assignments::calibration

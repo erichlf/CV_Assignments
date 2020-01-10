@@ -211,6 +211,7 @@ struct Detections
   std::vector<std::vector<Vector3<double>>> gridPoints;
   std::vector<std::vector<Vector2<double>>> imagePoints;
   std::unordered_map<std::string, size_t> frames;
+  int maxFrame;
 };
 
 }  // namespace assignments

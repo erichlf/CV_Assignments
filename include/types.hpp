@@ -43,17 +43,20 @@ class Transform
   Transform(const T angleAxisX, const T angleAxisY, const T angleAxisZ,
             const T x, const T y, const T z) :
       mAngleAxisX(angleAxisX), mAngleAxisY(angleAxisY), mAngleAxisZ(angleAxisZ),
-      mTranslationX(x), mTranslationY(y), mTranslationZ(z)
+      mTranslationX(x), mTranslationY(y), mTranslationZ(z),
+      mInitialized(false)
   { }
 
   Transform(const T* angleAxis, const T* translation) :
       mAngleAxisX(angleAxis[Coords::x]), mAngleAxisY(angleAxis[Coords::y]), mAngleAxisZ(angleAxis[Coords::z]),
-      mTranslationX(translation[Coords::x]), mTranslationY(translation[Coords::y]), mTranslationZ(translation[Coords::z])
+      mTranslationX(translation[Coords::x]), mTranslationY(translation[Coords::y]), mTranslationZ(translation[Coords::z]),
+      mInitialized(true)
   { }
 
   Transform(const cv::Vec<T, 3>& angleAxis, const cv::Vec<T, 3>& translation) :
       mAngleAxisX(angleAxis[Coords::x]), mAngleAxisY(angleAxis[Coords::y]), mAngleAxisZ(angleAxis[Coords::z]),
-      mTranslationX(translation[Coords::x]), mTranslationY(translation[Coords::y]), mTranslationZ(translation[Coords::z])
+      mTranslationX(translation[Coords::x]), mTranslationY(translation[Coords::y]), mTranslationZ(translation[Coords::z]),
+      mInitialized(true)
   { }
 
   auto transform(const T* point) const noexcept
@@ -94,6 +97,11 @@ class Transform
     return {mAngleAxisX, mAngleAxisY, mAngleAxisZ};
   }
 
+  bool initialized() const noexcept
+  {
+    return mInitialized;
+  }
+
   std::ostream& operator<<(std::ostream& out)
   {
     out << "Rotation: " << R() << std::endl;
@@ -105,6 +113,7 @@ class Transform
  private:
   T mAngleAxisX, mAngleAxisY, mAngleAxisZ;
   T mTranslationX, mTranslationY, mTranslationZ;
+  bool mInitialized = false;
 };
 
 template <typename T>

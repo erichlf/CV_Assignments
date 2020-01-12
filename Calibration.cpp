@@ -129,16 +129,10 @@ void Calibration::estimateExtrinsics()
         mCameraFromCameraMain[camera] = Transform<double>(0, 0, 0, 0, 0, 0);
         mCameraMainFromGrid[frameIDX] = Transform<double>(rvec, tvec);
       }
-      else
+      else if (mDetections[mRootCamera].frames.count(frame.first))  // frame exists in the main camera
       {
         Vector3<double> r;
         Vector3<double> t;
-        if (!mDetections[mRootCamera].frames.count(frame.first))  // frame doesn't exists in the main camera
-        {
-          // shift our transform over to the cameraMain as our guess
-          mCameraMainFromGrid[frameIDX] = Transform(rvec(0), rvec(1), rvec(2),
-                                                        tvec(0) + 0.20, tvec(1), tvec(2));
-        }
 
         r = mCameraMainFromGrid[frameIDX].R();
         t = mCameraMainFromGrid[frameIDX].t();
@@ -171,6 +165,8 @@ void Calibration::optimizeIntrinsics()
     auto intrinsics = reinterpret_cast<double*>(mIntrinsics.data() + camera);
     for (const auto& frame : mDetections[camera].frames)
     {
+      if (!mCameraMainFromGrid[std::stoi(frame.first)].initialized())  // skip missing frames
+        continue;
       auto cameraMainFromGrid = reinterpret_cast<double*>(mCameraMainFromGrid.data() + std::stoi(frame.first));
       for (const auto& point : mInlierIndices[camera][frame.first])
       {
@@ -237,6 +233,8 @@ std::tuple<double, double, double, double> Calibration::errors()
       const auto imagePoints = mDetections[camera].imagePoints[frame.second];
       for (const auto& point : mInlierIndices[camera][frame.first])
       {
+        if (!mCameraMainFromGrid[std::stoi(frame.first)].initialized())  // skip missing frames
+          continue;
         double residual[2];
         const auto cameraMainPoint = mCameraMainFromGrid[std::stoi(frame.first)].transform(gridPoints[point].data());
         const auto cameraPoint = mCameraFromCameraMain[camera].transform(cameraMainPoint.data());
